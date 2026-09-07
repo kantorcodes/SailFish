@@ -15,8 +15,33 @@ const FAILOVER_API_CODES: Record<string, FailoverTrigger> = {
   not_found_error: 'model_not_found',
   overloaded_error: 'overloaded',
   insufficient_quota: 'insufficient_quota',
-  insufficient_user_quota: 'insufficient_quota',
-  arrearserror: 'insufficient_quota',
+}
+
+/**
+ * 账户级欠费/停缴。换模型没用，也不能当成限流重试。
+ * 与「这一款的用量额度用尽」（insufficient_quota）分开。
+ */
+export const ACCOUNT_BILLING_CODES = new Set([
+  'arrearserror',
+  'insufficient_user_quota',
+  'insufficient_balance',
+  'accountoverdueerror',
+  'billing_not_active',
+  'billing_hard_limit_reached',
+  'exceeded_current_quota_error',
+  '402',
+])
+
+/** 厂商 code 可能是数字（OpenRouter `402`）或大小写混用（阿里云 `ArrearsError`） */
+export function normalizeApiErrorCode(code: unknown): string | undefined {
+  if (code == null || code === '') return undefined
+  return String(code).trim().toLowerCase()
+}
+
+export function isAccountBillingError(apiErrorCode?: unknown, statusCode?: number): boolean {
+  if (statusCode === 402) return true
+  const code = normalizeApiErrorCode(apiErrorCode)
+  return !!code && ACCOUNT_BILLING_CODES.has(code)
 }
 
 export interface ClassifyFailoverParams {
@@ -27,15 +52,15 @@ export interface ClassifyFailoverParams {
 }
 
 /**
- * 这次失败该不该换模型。鉴权失败、内容违规、对话超长返回 null。
+ * 这次失败该不该换模型。鉴权失败、内容违规、对话超长、账户欠费返回 null。
  */
 export function classifyFailoverTrigger(params: ClassifyFailoverParams): FailoverTrigger | null {
-  const code = params.apiErrorCode?.toLowerCase()
+  if (isAccountBillingError(params.apiErrorCode, params.statusCode)) return null
+  const code = normalizeApiErrorCode(params.apiErrorCode)
   if (code && FAILOVER_API_CODES[code]) {
     return FAILOVER_API_CODES[code]
   }
   if (params.statusCode === 404) return 'model_not_found'
-  if (params.statusCode === 402) return 'insufficient_quota'
   if (params.statusCode === 503 || params.statusCode === 529) return 'overloaded'
   if (params.retriesExhausted) return 'retries_exhausted'
   return null

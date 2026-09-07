@@ -10,8 +10,11 @@ import type { ProviderChatParams } from './plugin/types'
 import { createLogger } from '../utils/logger'
 import { toSendableVisionImageUrl } from '../utils/vision-image'
 import {
+  ACCOUNT_BILLING_CODES,
   classifyFailoverTrigger,
+  isAccountBillingError,
   listFailoverCandidates,
+  normalizeApiErrorCode,
   type AiModelFailoverNotice,
   type FailoverTrigger,
 } from './ai-model-failover'
@@ -122,7 +125,7 @@ export interface RetryInfo {
 function toApiRequestError(err: unknown, statusCode?: number, headers?: Record<string, string | string[] | undefined>, apiErrorCode?: string): ApiRequestError {
   const error = (err instanceof Error ? err : new Error(String(err))) as ApiRequestError
   error.statusCode = statusCode
-  error.apiErrorCode = apiErrorCode
+  error.apiErrorCode = normalizeApiErrorCode(apiErrorCode)
   if (statusCode === 429 && headers?.['retry-after']) {
     const raw = String(headers['retry-after'])
     const seconds = Number(raw)
@@ -158,7 +161,7 @@ async function withApiRetry<T>(
   }
 ): Promise<T> {
   const maxRetries = options?.maxRetries ?? AI_RETRY.MAX_RETRIES
-  const noRetryCodes = new Set(options?.noRetryErrorCodes ?? NO_RETRY_BUSINESS_CODES)
+  const noRetryCodes = new Set((options?.noRetryErrorCodes ?? NO_RETRY_BUSINESS_CODES).map(c => c.toLowerCase()))
   let networkAttempt = 0
   let rateLimitAttempt = 0
   let serverErrorAttempt = 0
@@ -169,12 +172,16 @@ async function withApiRetry<T>(
     } catch (err) {
       const apiErr = err as ApiRequestError
 
-      // 不重试的业务错误
-      if (apiErr.apiErrorCode && noRetryCodes.has(apiErr.apiErrorCode)) {
+      // 不重试的业务错误（欠费 / 鉴权等）。码先归一成小写，避免 ArrearsError 对不上 arrearserror
+      if (isAccountBillingError(apiErr.apiErrorCode, apiErr.statusCode)) {
+        throw apiErr
+      }
+      const businessCode = normalizeApiErrorCode(apiErr.apiErrorCode)
+      if (businessCode && noRetryCodes.has(businessCode)) {
         throw apiErr
       }
 
-      // 429 Rate Limit
+      // 429 Rate Limit（账户欠费有的厂商也回 429，上面已经排除）
       if (apiErr.statusCode === 429 && rateLimitAttempt < AI_RETRY.RATE_LIMIT_MAX_RETRIES) {
         rateLimitAttempt++
         const rawDelay = apiErr.retryAfter ?? calculateBackoff(AI_RETRY.RATE_LIMIT_BASE_DELAY, rateLimitAttempt - 1)
@@ -248,7 +255,8 @@ function translateNetworkError(err: NetworkErrorLike): string {
  * 所有键都是厂商协议里稳定的字符串常量（code 或 type），不做关键词匹配
  *
  * 覆盖的典型场景与厂商：
- *  - 余额/配额用尽：OpenAI/通义 `insufficient_quota`、`insufficient_user_quota`、阿里云 `ArrearsError`
+ *  - 某一款额度用尽：OpenAI/通义 `insufficient_quota`
+ *  - 账户欠费/停缴：见 ACCOUNT_BILLING_CODES（阿里云 ArrearsError、Moonshot exceeded_current_quota_error 等）
  *  - API Key 无效：OpenAI `invalid_api_key`、Anthropic `authentication_error`、通用 `unauthorized`
  *  - 权限/地区受限：`permission_denied`、`permission_error`、`model_not_accessible`、`access_denied`、`region_not_supported`
  *  - 模型不存在：OpenAI `model_not_found`、Anthropic `not_found_error`
@@ -258,8 +266,7 @@ function translateNetworkError(err: NetworkErrorLike): string {
  */
 const API_ERROR_CODE_MAP: Record<string, 'error.api_insufficient_quota' | 'error.api_invalid_key' | 'error.api_permission_denied' | 'error.api_model_not_found' | 'error.api_content_filtered' | 'error.api_overloaded' | 'error.api_rate_limited'> = {
   insufficient_quota: 'error.api_insufficient_quota',
-  insufficient_user_quota: 'error.api_insufficient_quota',
-  arrearserror: 'error.api_insufficient_quota',
+  ...Object.fromEntries([...ACCOUNT_BILLING_CODES].map(code => [code, 'error.api_insufficient_quota' as const])),
   invalid_api_key: 'error.api_invalid_key',
   authentication_error: 'error.api_invalid_key',
   unauthorized: 'error.api_invalid_key',
@@ -293,6 +300,11 @@ const NO_RETRY_BUSINESS_CODES: readonly string[] = [
   )
 ]
 
+export function isNoRetryBusinessCode(code?: unknown): boolean {
+  const normalized = normalizeApiErrorCode(code)
+  return !!normalized && NO_RETRY_BUSINESS_CODES.includes(normalized)
+}
+
 /**
  * 把原始 API 错误翻译为用户可读的文案
  * - 先按厂商 code/type 精确匹配（最准确）
@@ -304,7 +316,7 @@ function translateApiBusinessError(
   apiErrorCode: string | undefined,
   model?: string
 ): string | null {
-  const code = apiErrorCode?.toLowerCase()
+  const code = normalizeApiErrorCode(apiErrorCode)
   if (code && API_ERROR_CODE_MAP[code]) {
     const key = API_ERROR_CODE_MAP[code]
     return t(key, { model: model || '' })
@@ -381,7 +393,7 @@ function parseApiResponseJson(raw: string): unknown {
  * 解析 API 返回的错误响应体，提取结构化的错误信息
  * 避免将原始 JSON（如 {"error":{"message":"...","type":"...","param":null,...}}）直接展示给用户
  */
-function parseApiError(rawBody: string): { message: string; code?: string } {
+export function parseApiError(rawBody: string): { message: string; code?: string } {
   const body = normalizeApiResponseBody(rawBody)
   try {
     const parsed = JSON.parse(body)
@@ -389,16 +401,27 @@ function parseApiError(rawBody: string): { message: string; code?: string } {
       // OpenAI 格式: {"error": {"message":"...", "type":"...", "code":"..."}}
       if (typeof parsed.error === 'object') {
         return {
-          message: parsed.error.message || t('error.api_error_generic'),
-          code: parsed.error.code || parsed.error.type
+          message: (typeof parsed.error.message === 'string' && parsed.error.message)
+            ? parsed.error.message
+            : t('error.api_error_generic'),
+          code: normalizeApiErrorCode(parsed.error.code) || normalizeApiErrorCode(parsed.error.type)
         }
       }
       // vLLM/SGLang 格式: {"error":"...", "error_type":"..."}
       if (typeof parsed.error === 'string') {
         return {
           message: parsed.error,
-          code: parsed.error_type || undefined
+          code: normalizeApiErrorCode(parsed.error_type)
         }
+      }
+    }
+    // DashScope / 部分中转：顶层 { code, message }，无 error 包裹
+    const topCode = normalizeApiErrorCode(parsed?.code) || normalizeApiErrorCode(parsed?.type)
+    const topMessage = typeof parsed?.message === 'string' ? parsed.message : undefined
+    if (topCode || topMessage) {
+      return {
+        message: topMessage || t('error.api_error_generic'),
+        code: topCode
       }
     }
   } catch {
@@ -1748,8 +1771,12 @@ export class AiService {
       }, AI_TIMEOUT.SOCKET_IDLE)
     }
 
-    const tryRetry = (error: NetworkErrorLike, statusCode?: number, retryAfterMs?: number): boolean => {
+    const tryRetry = (error: NetworkErrorLike, statusCode?: number, retryAfterMs?: number, apiErrorCode?: string): boolean => {
       if (isCompleted) return true
+
+      if (isAccountBillingError(apiErrorCode, statusCode) || isNoRetryBusinessCode(apiErrorCode)) {
+        return false
+      }
 
       // 429 Rate Limit
       if (statusCode === 429 && rateLimitRetryCount < AI_RETRY.RATE_LIMIT_MAX_RETRIES) {
@@ -1852,7 +1879,7 @@ export class AiService {
                 if (!isNaN(date)) retryAfterMs = Math.max(1000, date - Date.now())
               }
             }
-            if (!tryRetry(parsed.message, res.statusCode, retryAfterMs)) {
+            if (!tryRetry(parsed.message, res.statusCode, retryAfterMs, parsed.code)) {
               const friendly = translateApiBusinessError(res.statusCode, parsed.code, profile.model)
               complete(() => onError(friendly || t('error.api_request_failed', { data: parsed.message })))
             }
@@ -2491,7 +2518,12 @@ export class AiService {
             const parsed = parseApiError(errorData)
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
             log.error(`Request HTTP error: model=${profile.model}, status=${res.statusCode}, duration=${elapsed}s, error=${parsed.message.slice(0, 200)}`)
-            if (res.statusCode === 429 && rateLimitRetryCount < AI_RETRY.RATE_LIMIT_MAX_RETRIES) {
+            if (
+              res.statusCode === 429
+              && !isAccountBillingError(parsed.code, res.statusCode)
+              && !isNoRetryBusinessCode(parsed.code)
+              && rateLimitRetryCount < AI_RETRY.RATE_LIMIT_MAX_RETRIES
+            ) {
               // Rate limit: 优先 Retry-After header，否则指数退避 + jitter
               rateLimitRetryCount++
               const retryAfterHeader = res.headers['retry-after']
@@ -2541,8 +2573,9 @@ export class AiService {
             } else {
               const status = res.statusCode
               const exhaustedTransient =
-                status === 429 ||
-                (status !== undefined && AI_RETRY.RETRYABLE_STATUS_CODES.includes(status))
+                (status === 429 && rateLimitRetryCount >= AI_RETRY.RATE_LIMIT_MAX_RETRIES) ||
+                (status !== undefined && AI_RETRY.RETRYABLE_STATUS_CODES.includes(status)
+                  && serverErrorRetryCount >= AI_RETRY.SERVER_ERROR_MAX_RETRIES)
               if (tryModelFailover(classifyFailoverTrigger({
                 statusCode: status,
                 apiErrorCode: parsed.code,

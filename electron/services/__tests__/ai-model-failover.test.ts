@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyFailoverTrigger, listFailoverCandidates } from '../ai-model-failover'
+import { classifyFailoverTrigger, isAccountBillingError, listFailoverCandidates, normalizeApiErrorCode } from '../ai-model-failover'
 
 function profile(id: string) {
   return { id, name: id }
@@ -51,7 +51,6 @@ describe('classifyFailoverTrigger', () => {
 
   it('按 HTTP 状态判断，不用错误文案', () => {
     expect(classifyFailoverTrigger({ statusCode: 404 })).toBe('model_not_found')
-    expect(classifyFailoverTrigger({ statusCode: 402 })).toBe('insufficient_quota')
     expect(classifyFailoverTrigger({ statusCode: 503 })).toBe('overloaded')
     expect(classifyFailoverTrigger({ statusCode: 529 })).toBe('overloaded')
   })
@@ -62,5 +61,28 @@ describe('classifyFailoverTrigger', () => {
     expect(classifyFailoverTrigger({ apiErrorCode: 'content_filter' })).toBeNull()
     expect(classifyFailoverTrigger({ apiErrorCode: 'context_length_exceeded' })).toBeNull()
     expect(classifyFailoverTrigger({ statusCode: 400 })).toBeNull()
+  })
+
+  it('账户欠费不换模型，即使已经重试用尽或厂商回了 429', () => {
+    expect(classifyFailoverTrigger({ apiErrorCode: 'ArrearsError' })).toBeNull()
+    expect(classifyFailoverTrigger({ apiErrorCode: 'arrearserror', retriesExhausted: true })).toBeNull()
+    expect(classifyFailoverTrigger({ statusCode: 402 })).toBeNull()
+    expect(classifyFailoverTrigger({ statusCode: 402, retriesExhausted: true })).toBeNull()
+    expect(classifyFailoverTrigger({ statusCode: 429, apiErrorCode: 'exceeded_current_quota_error' })).toBeNull()
+    expect(classifyFailoverTrigger({ apiErrorCode: '402' })).toBeNull()
+  })
+})
+
+describe('isAccountBillingError / normalizeApiErrorCode', () => {
+  it('归一厂商 code 的大小写和数字', () => {
+    expect(normalizeApiErrorCode('ArrearsError')).toBe('arrearserror')
+    expect(normalizeApiErrorCode(402)).toBe('402')
+    expect(normalizeApiErrorCode('')).toBeUndefined()
+  })
+
+  it('402 与账户欠费码都算欠费', () => {
+    expect(isAccountBillingError(undefined, 402)).toBe(true)
+    expect(isAccountBillingError('ArrearsError')).toBe(true)
+    expect(isAccountBillingError('insufficient_quota')).toBe(false)
   })
 })
