@@ -1169,6 +1169,7 @@ const translations = {
     'hint.command_cannot_execute': '无法执行',
     'hint.security_blocked': '系统安全策略已硬拒该命令：不会执行，也不会征求确认。',
     'hint.security_blocked_with_reason': '系统安全策略已硬拒该命令：不会执行，也不会征求确认。原因：{reason}',
+    'hint.original_command': '原命令：{command}',
     'hint.command_empty': '命令不能为空',
 
     // 命令风险评估原因（reasons）- 用于确认卡片展示
@@ -2749,6 +2750,7 @@ Calendar, Todo, Bitable, Drive and Wiki operations require the user's union_id:
     'hint.command_cannot_execute': 'Cannot execute',
     'hint.security_blocked': 'This command was hard-blocked by security policy: it will not run and will not ask for confirmation.',
     'hint.security_blocked_with_reason': 'This command was hard-blocked by security policy: it will not run and will not ask for confirmation. Reason: {reason}',
+    'hint.original_command': 'Original command: {command}',
     'hint.command_empty': 'Command cannot be empty',
 
     // Command risk assessment reasons - shown in confirmation card

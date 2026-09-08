@@ -169,7 +169,7 @@ export async function executeCommand(
   const assessment = await assessCommandRiskDetailed(command, auditContextFromConfig(config))
 
   if (assessment.level === 'blocked') {
-    return { success: false, output: '', error: formatHardBlockedMessage(assessment) }
+    return { success: false, output: '', error: formatHardBlockedMessage(assessment, command) }
   }
 
   if (isSubAgentBlocked(assessment, config.commandRiskPolicy) && executor.isSubAgent) {

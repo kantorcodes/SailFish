@@ -138,6 +138,12 @@ describe('formatHardBlockedMessage', () => {
     expect(msg).not.toContain('请主人')
   })
 
+  it('传入原命令时作为事实附上', () => {
+    const msg = formatHardBlockedMessage(assessment('blocked'), 'rm -rf /')
+    expect(msg).toContain('原命令：rm -rf /')
+    expect(msg).not.toContain('不要')
+  })
+
   it('只收录 blocked 子命令的原因', () => {
     const msg = formatHardBlockedMessage({
       level: 'blocked',

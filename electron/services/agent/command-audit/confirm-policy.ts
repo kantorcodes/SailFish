@@ -24,7 +24,7 @@ export function isHardBlocked(level: RiskLevel): boolean {
 }
 
 /** 硬拒时给秘书看的中性说明：事实 + 审计原因，不含行动指导 */
-export function formatHardBlockedMessage(assessment: CommandRiskAssessment): string {
+export function formatHardBlockedMessage(assessment: CommandRiskAssessment, command?: string): string {
   const seen = new Set<string>()
   const reasons: string[] = []
   for (const call of assessment.calls) {
@@ -35,8 +35,11 @@ export function formatHardBlockedMessage(assessment: CommandRiskAssessment): str
       reasons.push(r)
     }
   }
-  if (reasons.length === 0) return t('hint.security_blocked')
-  return t('hint.security_blocked_with_reason', { reason: reasons.join('；') })
+  const base = reasons.length === 0
+    ? t('hint.security_blocked')
+    : t('hint.security_blocked_with_reason', { reason: reasons.join('；') })
+  if (!command) return base
+  return `${base}\n${t('hint.original_command', { command })}`
 }
 
 /**
