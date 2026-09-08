@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { AiModelType, AiProfile, ApiFormat, JumpHostConfig, SessionSortBy, SshEncoding, SystemColorScheme, UiThemeMode } from '@shared/types'
-import { DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, normalizeCueSoundSettings, resolveEffectiveUiTheme } from '@shared/types'
+import { clampUiZoomFactor, DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, normalizeCueSoundSettings, resolveEffectiveUiTheme, UI_ZOOM_DEFAULT } from '@shared/types'
 import { setLocale, type LocaleType } from '../i18n'
 import { uiThemes, type UiThemeName } from '../themes/ui-themes'
 import { setLogLevel as setFrontendLogLevel, type LogLevel } from '../utils/logger'
@@ -406,6 +406,9 @@ export const useConfigStore = defineStore('config', () => {
   // 输入区是否显示这场对话开着的技能胶囊（关掉只藏界面）
   const showConversationSkillChips = ref<boolean>(true)
 
+  // 整窗界面缩放（1 = 100%），和菜单放大/缩小同一套
+  const uiZoomFactor = ref<number>(UI_ZOOM_DEFAULT)
+
   // 自动使用视觉模型
   const autoVisionModel = ref<boolean>(true)
   // 自动切换可用模型（失败后从列表第一个开始换，只改这场对话）
@@ -459,6 +462,7 @@ export const useConfigStore = defineStore('config', () => {
         accounts, savedShortcuts, savedAutoVision, savedAutoFailover, calAccounts, savedTtsSettings, savedCueSoundSettings, savedWebSearchSettings,
         themeMode, sysScheme, savedPinnedConversationIds, savedConversationDisplayTitles,
         savedFoldAgentProcess, savedFoldProcessInviteCount, savedShowConversationSkillChips,
+        savedUiZoomFactor,
       ] = await Promise.all([
         window.electronAPI.config.getAiProfiles(),
         window.electronAPI.config.getActiveAiProfile(),
@@ -496,6 +500,7 @@ export const useConfigStore = defineStore('config', () => {
         window.electronAPI.config.get('foldAgentProcess') as Promise<boolean | undefined>,
         window.electronAPI.config.get('foldProcessInviteCount') as Promise<number | undefined>,
         window.electronAPI.config.get('showConversationSkillChips') as Promise<boolean | undefined>,
+        window.electronAPI.config.get('uiZoomFactor') as Promise<number | undefined>,
       ])
 
       // 批量赋值
@@ -540,6 +545,7 @@ export const useConfigStore = defineStore('config', () => {
       foldAgentProcessChoice.value = typeof savedFoldAgentProcess === 'boolean' ? savedFoldAgentProcess : undefined
       foldProcessInviteCount.value = savedFoldProcessInviteCount ?? 0
       showConversationSkillChips.value = savedShowConversationSkillChips ?? true
+      uiZoomFactor.value = clampUiZoomFactor(savedUiZoomFactor ?? UI_ZOOM_DEFAULT)
       calendarAccounts.value = calAccounts || []
       if (savedTtsSettings && typeof savedTtsSettings === 'object') {
         ttsSettings.value = { ...ttsSettings.value, ...savedTtsSettings }
@@ -602,6 +608,16 @@ export const useConfigStore = defineStore('config', () => {
     })
   }
   listenConfigChanged()
+
+  let cleanupUiZoomChanged: (() => void) | null = null
+  function listenUiZoomChanged(): void {
+    if (cleanupUiZoomChanged) return
+    if (!window.electronAPI?.config?.onUiZoomChanged) return
+    cleanupUiZoomChanged = window.electronAPI.config.onUiZoomChanged((factor) => {
+      uiZoomFactor.value = clampUiZoomFactor(factor)
+    })
+  }
+  listenUiZoomChanged()
 
   /**
    * 监听系统外观变化（macOS 早晚自动切换 / Win11 计划等），auto 模式下立即更新生效主题。
@@ -849,6 +865,11 @@ export const useConfigStore = defineStore('config', () => {
   async function setShowConversationSkillChips(enabled: boolean): Promise<void> {
     showConversationSkillChips.value = enabled
     await window.electronAPI.config.set('showConversationSkillChips', enabled)
+  }
+
+  async function setUiZoomFactor(factor: number): Promise<void> {
+    uiZoomFactor.value = clampUiZoomFactor(factor)
+    await window.electronAPI.config.set('uiZoomFactor', uiZoomFactor.value)
   }
 
   /** 邀请露过一次面，消耗一次配额 */
@@ -1252,6 +1273,8 @@ export const useConfigStore = defineStore('config', () => {
     markFoldProcessInvited,
     showConversationSkillChips,
     setShowConversationSkillChips,
+    uiZoomFactor,
+    setUiZoomFactor,
     setupCompleted,
     agentOnboardingCompleted,
     agentOnboardingShown,

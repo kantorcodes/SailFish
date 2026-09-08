@@ -787,6 +787,11 @@ const electronAPI = {
       ipcRenderer.on('config:changed', handler)
       return () => { ipcRenderer.removeListener('config:changed', handler) }
     },
+    onUiZoomChanged: (callback: (factor: number) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, factor: number) => callback(factor)
+      ipcRenderer.on('ui-zoom:changed', handler)
+      return () => { ipcRenderer.removeListener('ui-zoom:changed', handler) }
+    },
     getRecoveryNotice: () =>
       ipcRenderer.invoke('config:getRecoveryNotice') as Promise<{
         kind: 'restored' | 'reset'

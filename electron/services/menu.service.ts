@@ -204,6 +204,8 @@ export class MenuService {
   private quitHandler: (() => void) | null = null
   /** ⌘W 先关附属窗口（文件管理器等）时返回 true，主窗口就不要再关内容 */
   private closeTabInterceptor: (() => boolean) | null = null
+  /** 整窗缩放（不用 role，避免焦点在 webview 里改错对象） */
+  private zoomHandler: ((action: 'in' | 'out' | 'reset') => void) | null = null
 
   /**
    * 获取翻译文本
@@ -242,6 +244,10 @@ export class MenuService {
 
   setCloseTabInterceptor(handler: () => boolean): void {
     this.closeTabInterceptor = handler
+  }
+
+  setZoomHandler(handler: (action: 'in' | 'out' | 'reset') => void): void {
+    this.zoomHandler = handler
   }
 
   private handleCloseTabCommand(): void {
@@ -534,17 +540,38 @@ export class MenuService {
       {
         label: this.t('zoomIn'),
         accelerator: 'CmdOrCtrl+=',
-        role: 'zoomIn'
+        click: () => this.zoomHandler?.('in')
+      },
+      {
+        label: this.t('zoomIn'),
+        accelerator: 'CmdOrCtrl+Plus',
+        visible: false,
+        acceleratorWorksWhenHidden: true,
+        click: () => this.zoomHandler?.('in')
+      },
+      {
+        label: this.t('zoomIn'),
+        accelerator: 'CmdOrCtrl+numadd',
+        visible: false,
+        acceleratorWorksWhenHidden: true,
+        click: () => this.zoomHandler?.('in')
       },
       {
         label: this.t('zoomOut'),
         accelerator: 'CmdOrCtrl+-',
-        role: 'zoomOut'
+        click: () => this.zoomHandler?.('out')
+      },
+      {
+        label: this.t('zoomOut'),
+        accelerator: 'CmdOrCtrl+numsub',
+        visible: false,
+        acceleratorWorksWhenHidden: true,
+        click: () => this.zoomHandler?.('out')
       },
       {
         label: this.t('resetZoom'),
         accelerator: 'CmdOrCtrl+0',
-        role: 'resetZoom'
+        click: () => this.zoomHandler?.('reset')
       },
       { type: 'separator' },
       {

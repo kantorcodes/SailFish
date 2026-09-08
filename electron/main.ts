@@ -12,6 +12,7 @@ import { requestLocalNetworkAccess } from './utils/local-network-permission'
 import { isAbortError } from './utils/abort'
 import { createTerminalDataCoalescer } from './utils/terminal-data-coalescer'
 import type { AttachmentInfo, DocumentParseProgress, UiThemeMode, UiThemeName, WebSearchSettings, IMProcessMode } from '@shared/types'
+import { clampUiZoomFactor, stepUiZoomFactor, UI_ZOOM_DEFAULT } from '@shared/types'
 import { getAppTitle as buildAppTitle, getBrandName } from '@shared/brand'
 import { isOemFeatureEnabled } from '@shared/oem-features'
 import { startCrashReporter, initCrashDiagnostics, recordMainProcessError, getCrashRecorder, markCleanExit } from './services/diagnostics/collector'
@@ -568,6 +569,60 @@ let quitTerminalCountHandled = false
 
 const configService = new ConfigService()
 setConfigServiceInstance(configService)
+
+function readUiZoomFactor(): number {
+  return clampUiZoomFactor(configService.get('uiZoomFactor'))
+}
+
+function applyUiZoomToAllWindows(factor: number): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue
+    try {
+      win.webContents.setZoomFactor(factor)
+    } catch {
+      /* 窗口尚未就绪 */
+    }
+  }
+}
+
+function broadcastUiZoomChanged(factor: number): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('ui-zoom:changed', factor)
+    }
+  }
+}
+
+function commitUiZoomFactor(factor: number): number {
+  const next = clampUiZoomFactor(factor)
+  if (configService.get('uiZoomFactor') !== next) {
+    configService.set('uiZoomFactor', next)
+  }
+  applyUiZoomToAllWindows(next)
+  broadcastUiZoomChanged(next)
+  return next
+}
+
+function handleUiZoomAction(action: 'in' | 'out' | 'reset'): void {
+  if (action === 'reset') {
+    commitUiZoomFactor(UI_ZOOM_DEFAULT)
+    return
+  }
+  commitUiZoomFactor(stepUiZoomFactor(readUiZoomFactor(), action === 'in' ? 1 : -1))
+}
+
+function attachUiZoom(win: BrowserWindow): void {
+  const apply = () => {
+    try {
+      win.webContents.setZoomFactor(readUiZoomFactor())
+    } catch {
+      /* 窗口尚未就绪 */
+    }
+  }
+  win.webContents.on('did-finish-load', apply)
+  apply()
+}
+
 const aiService = new AiService(configService)
 // 指定 AI 配置失效并回退时，通知所有窗口弹 toast（Agent 步骤流另有订阅）
 aiService.onProfileFallback((notice) => {
@@ -1109,6 +1164,7 @@ function setupWindowServices() {
   gatewayService?.setMainWindow(mainWindow)
   imService?.setMainWindow(mainWindow)
   menuService.setMainWindow(mainWindow)
+  menuService.setZoomHandler(handleUiZoomAction)
   menuService.setCloseTabInterceptor(() => {
     if (fileManagerWindow && !fileManagerWindow.isDestroyed()) {
       fileManagerWindow.close()
@@ -1266,6 +1322,7 @@ function createWindow() {
       sandbox: false,
       // 产出物面板 HTML 预览使用 <webview>（独立渲染进程，支持截图反馈与 live URL）
       webviewTag: true,
+      zoomFactor: readUiZoomFactor(),
       // Windows：托盘恢复白屏修复需要关闭节流（81296d0b）。
       // macOS/Linux：保持默认 true，保留遮挡/后台帧率节流，避免渲染进程空闲空转。
       ...(process.platform === 'win32' ? { backgroundThrottling: false } : {})
@@ -1325,6 +1382,7 @@ function createWindow() {
   // 分屏 / 工作台反向 IPC 桥接
   splitPaneBridge.init(mainWindow)
   workbenchBridge.init(mainWindow)
+  attachUiZoom(mainWindow)
 
   // Windows 上窗口获得焦点时，确保 webContents 也获得键盘输入路由
   // 防止 setAlwaysOnTop 切换或通知交互后出现"窗口在前台但无法输入"的僵死状态
@@ -1454,9 +1512,11 @@ function createFileManagerWindow(params?: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      zoomFactor: readUiZoomFactor()
     }
   })
+  attachUiZoom(fileManagerWindow)
 
   // 窗口准备好后显示
   fileManagerWindow.once('ready-to-show', () => {
@@ -1519,9 +1579,11 @@ function createAiDebugWindow(): void {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      zoomFactor: readUiZoomFactor()
     }
   })
+  attachUiZoom(aiDebugWindow)
 
   // 窗口准备好后显示
   aiDebugWindow.once('ready-to-show', () => {
@@ -3189,6 +3251,10 @@ ipcMain.handle('config:set', async (_event, key: string, value: unknown) => {
     } catch (err) {
       log.warn('Failed to broadcast commandRiskPolicy to agents:', err)
     }
+    return
+  }
+  if (key === 'uiZoomFactor') {
+    commitUiZoomFactor(value)
     return
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

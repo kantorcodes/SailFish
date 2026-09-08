@@ -438,6 +438,7 @@ interface Window {
       set: (key: string, value: unknown) => Promise<void>
       getAll: () => Promise<Record<string, unknown>>
       onChanged: (callback: (payload?: { sshSessions?: unknown[]; sessionGroups?: unknown[] }) => void) => () => void
+      onUiZoomChanged: (callback: (factor: number) => void) => () => void
       getRecoveryNotice: () => Promise<{
         kind: 'restored' | 'reset'
         from?: string

@@ -175,6 +175,8 @@ interface StoreSchema {
    */
   agentOnboardingShown?: boolean
   language: LocaleType
+  /** 整窗界面缩放（1 = 100%），和菜单放大/缩小同一套 */
+  uiZoomFactor: number
   sponsorStatus: boolean
   sessionSortBy: SessionSortBy
   defaultGroupSortOrder: number
@@ -302,6 +304,7 @@ const defaultConfig: StoreSchema = {
   agentOnboardingCompleted: false,
   // agentOnboardingShown 故意不设默认：保持 undefined 以区分"未展示"与显式 false
   language: 'zh-CN',
+  uiZoomFactor: 1,
   sponsorStatus: false,
   sessionSortBy: 'custom',
   defaultGroupSortOrder: -1,

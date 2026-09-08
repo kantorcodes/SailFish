@@ -6,6 +6,7 @@
 export * from './agent'
 export * from './ai'
 export * from './app'
+export * from './ui-zoom'
 export * from './bastion'
 export * from './bond'
 export * from './canvas'
