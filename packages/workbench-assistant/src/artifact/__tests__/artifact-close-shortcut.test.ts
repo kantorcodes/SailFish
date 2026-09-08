@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  CLOSE_ARTIFACT_SHORTCUT_GUARD_MS,
   closeFocusedArtifact,
   isCloseArtifactShortcut,
-  registerFocusedArtifactCloser
+  registerFocusedArtifactCloser,
+  resetCloseArtifactShortcutGuard
 } from '../domain/artifact-close-shortcut'
 
 describe('isCloseArtifactShortcut', () => {
@@ -21,6 +23,8 @@ describe('isCloseArtifactShortcut', () => {
 describe('closeFocusedArtifact', () => {
   afterEach(() => {
     registerFocusedArtifactCloser(null)
+    resetCloseArtifactShortcutGuard()
+    vi.useRealTimers()
   })
 
   it('未注册或回调返回 false 时不关', () => {
@@ -29,11 +33,23 @@ describe('closeFocusedArtifact', () => {
     expect(closeFocusedArtifact()).toBe(false)
   })
 
-  it('有焦点则关一次；同一拍再进来不连关', () => {
+  it('有焦点则关一次；菜单回声窗口内再进来不连关', () => {
+    vi.useFakeTimers()
     const closer = vi.fn(() => true)
     registerFocusedArtifactCloser(closer)
     expect(closeFocusedArtifact()).toBe(true)
+    vi.advanceTimersByTime(CLOSE_ARTIFACT_SHORTCUT_GUARD_MS - 1)
     expect(closeFocusedArtifact()).toBe(true)
     expect(closer).toHaveBeenCalledTimes(1)
+  })
+
+  it('窗口过后再按可以再关一份', () => {
+    vi.useFakeTimers()
+    const closer = vi.fn(() => true)
+    registerFocusedArtifactCloser(closer)
+    expect(closeFocusedArtifact()).toBe(true)
+    vi.advanceTimersByTime(CLOSE_ARTIFACT_SHORTCUT_GUARD_MS)
+    expect(closeFocusedArtifact()).toBe(true)
+    expect(closer).toHaveBeenCalledTimes(2)
   })
 })

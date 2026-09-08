@@ -393,8 +393,14 @@ function refineCtxMenu(x: number, y: number) {
   })
 }
 
+function isPanelFocusedNow(): boolean {
+  if (panelHasFocus.value) return true
+  // webview / 编辑器拿到焦点时，宿主 mousedown 可能到不了，以当前 activeElement 为准
+  return isArtifactOwnedTarget(document.activeElement)
+}
+
 function tryCloseFocusedTab(): boolean {
-  if (!panelHasFocus.value) return false
+  if (!isPanelFocusedNow()) return false
   if (!artifactStore.isVisible(props.tabId)) return false
   const id = activeArtifactId.value
   if (!id) return false
