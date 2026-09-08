@@ -2,7 +2,37 @@
 
 All notable changes to SailFish will be documented in this file.
 
-## v11.9.0 (2026-08-31) (Latest)
+## v11.10.0 (2026-09-08) (Latest)
+
+> Documents can fill the window for reading, with the conversation tucked into a bar at the bottom. In a web preview, you can select a passage and have only that part changed. Hosts can be added, edited, or removed by asking the secretary, and the host list is easier to use.
+
+### New Features
+- 🎯 **Fill the window with a document**: Artifacts can fill the window; the conversation becomes a bar at the bottom. The input floats over the document; the same button enters and leaves this view
+- 🎯 **Select text on a web page to edit**: Select text in an HTML preview; the assistant changes only that passage
+- 🎯 **Manage hosts in conversation**: Ask the secretary to add, edit, or remove a host. Create one from a group header; right-click to open a terminal or split into the current session
+
+### Improvements
+- ⚡ **Reopened chats keep more**: Tasks reopen with the original text and only hand off when the context is full. Reach keeps a process summary after you close it, and handoffs come back with it
+- ⚡ **Dangerous-command blocking is more precise**: Only blocks destructive operations aimed at the whole disk, the boot partition, or the Windows system drive; ordinary cleanup is no longer blocked by mistake
+- ⚡ **Hard-deny command rules**: A rule can be set to always deny; rules can only be tightened, not loosened
+- ⚡ **Attachments use system icons**
+- ⚡ **Word and Excel opened to the panel can be previewed directly**
+
+### Bug Fixes
+- 🐛 **Todo due dates can be picked normally**
+- 🐛 **Large SSH output no longer freezes the window**
+- 🐛 **Dialogs you are filling in no longer close when you click the overlay**
+- 🐛 **Editing a host no longer closes the dialog when you use the sidebar**
+- 🐛 **Full-text search finds attachment names**
+- 🐛 **An empty Reach chat shows a QR code when WeChat is not connected**
+- 🐛 **Word preview first-line indent matches the document**
+- 🐛 **Empty model replies explain what happened and what to try**
+- 🐛 **Images received in WeChat can be used as files, as they can in tasks**
+- 🐛 **An overdue account asks you to top up**, instead of treating it as rate-limiting or switching models
+- 🐛 **A hard-blocked command still reports the original command to the parent agent**
+
+## v11.9.0 (2026-08-31)
+
 
 > Skills are visible now — no longer hidden. You can select a range in a spreadsheet and hand it to the assistant. Official-document previews follow the original fonts and page.
 
