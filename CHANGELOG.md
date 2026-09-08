@@ -10,7 +10,7 @@ All notable changes to SailFish will be documented in this file.
 - 🎯 **Fill the window with a document**: Artifacts can fill the window; the conversation becomes a bar at the bottom. The input floats over the document; the same button enters and leaves this view
 - 🎯 **Select text on a web page to edit**: Select text in an HTML preview; the assistant changes only that passage
 - 🎯 **Manage hosts in conversation**: Ask the secretary to add, edit, or remove a host. Create one from a group header; right-click to open a terminal or split into the current session
-- 🎯 **Interface zoom**: In General settings, step the whole window larger or smaller; click the percentage to return to 100%. Same as the menu shortcuts
+- 🎯 **Interface zoom**: Zoom the entire interface in or out from Settings
 
 ### Improvements
 - ⚡ **Reopened chats keep more**: Tasks reopen with the original text and only hand off when the context is full. Reach keeps a process summary after you close it, and handoffs come back with it
@@ -31,6 +31,7 @@ All notable changes to SailFish will be documented in this file.
 - 🐛 **Images received in WeChat can be used as files, as they can in tasks**
 - 🐛 **An overdue account asks you to top up**, instead of treating it as rate-limiting or switching models
 - 🐛 **A hard-blocked command still reports the original command to the parent agent**
+- 🐛 **⌘/Ctrl+W closes only the current artifact tab**, not the whole panel
 
 ## v11.9.0 (2026-08-31)
 
