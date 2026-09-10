@@ -172,7 +172,6 @@ export default {
     sessionConsumedTitle: '输入 {prompt} · 输出 {completion} tokens',
     sessionConsumedTitleLiveRate: '输入 {prompt} · 输出 {completion} · 出速 {rate} tokens/s',
     sessionConsumedTitleAvgRate: '输入 {prompt} · 输出 {completion} · 均速 {rate} tokens/s',
-    sessionConsumedChip: '消耗 {count} tokens',
     contextUsageShowDetail: '查看组成',
     contextUsageHideDetail: '收起组成',
     contextComposition: {

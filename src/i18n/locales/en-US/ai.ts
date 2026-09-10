@@ -172,7 +172,6 @@ export default {
     sessionConsumedTitle: '{prompt} in · {completion} out',
     sessionConsumedTitleLiveRate: '{prompt} in · {completion} out · {rate} tokens/s',
     sessionConsumedTitleAvgRate: '{prompt} in · {completion} out · avg {rate} tokens/s',
-    sessionConsumedChip: 'Used {count} tokens',
     contextUsageShowDetail: 'Show breakdown',
     contextUsageHideDetail: 'Hide breakdown',
     contextComposition: {

@@ -1209,6 +1209,7 @@ const isTwoRow = computed(() => !props.overlay && !!slots['footer-left'])
 
 function formatLiveTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.?0+$/, '')}k`
   return n.toLocaleString()
 }
 
@@ -1243,7 +1244,7 @@ onBeforeUnmount(() => cancelAnimationFrame(consumedAnimRaf))
 
 const consumedTokenLabel = computed(() => {
   if (displayedConsumed.value <= 0) return ''
-  return t('ai.sessionConsumedChip', { count: formatLiveTokens(displayedConsumed.value) })
+  return formatLiveTokens(displayedConsumed.value)
 })
 
 const { rateKind: outputRateKind, rateText: outputRateText } = useOutputTokenRate(
@@ -1766,6 +1767,7 @@ const handleSendClick = (event: MouseEvent) => {
           <span
             v-if="consumedTokenLabel"
             class="session-token-chip"
+            :aria-label="consumedTokenTitle"
             @mouseenter="showConsumedTip($event, consumedTokenTitle, 'top')"
             @mouseleave="hideConsumedTip"
           >{{ consumedTokenLabel }}</span>
@@ -3055,6 +3057,7 @@ const handleSendClick = (event: MouseEvent) => {
   color: var(--text-muted);
   cursor: help;
   user-select: none;
+  white-space: nowrap;
 }
 
 .input-footer-right {
