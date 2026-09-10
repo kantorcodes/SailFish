@@ -1,5 +1,5 @@
 /**
- * 输出 token 速度：吐字中看出速，停住后看刚结束那一段的均速。
+ * 输出 token 速度：吐字中跟这一段走，停住后留下刚结束那一段的平均。
  */
 import { computed, onBeforeUnmount, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue'
 
@@ -38,6 +38,10 @@ export function createOutputRateTracker() {
     return state
   }
 
+  function burstTokens(): number {
+    return lastTokens - burstStartTokens
+  }
+
   function reset(tokens = 0): OutputRateState {
     lastTokens = Math.max(0, tokens)
     burstStartTokens = lastTokens
@@ -51,6 +55,10 @@ export function createOutputRateTracker() {
   return {
     getState(): OutputRateState {
       return state
+    },
+
+    isOutputting(): boolean {
+      return outputting
     },
 
     reset,
@@ -67,13 +75,25 @@ export function createOutputRateTracker() {
       }
       lastTokens = next
       lastIncreaseAt = now
-      return applyRate('live', lastTokens - burstStartTokens, now - burstStartAt)
+      return applyRate('live', burstTokens(), now - burstStartAt)
     },
 
-    settle(): OutputRateState {
+    /** 吐字中按墙上时钟刷新，首包之后不用等下一跳也能出价 */
+    tick(now: number): OutputRateState {
+      if (!outputting) return state
+      return applyRate('live', burstTokens(), now - burstStartAt)
+    },
+
+    /**
+     * 只跳过一次数字时，起止时刻相同，必须用停住的时刻当终点，否则平均永远算不出来。
+     */
+    settle(now?: number): OutputRateState {
       if (!outputting) return state
       outputting = false
-      return applyRate('avg', lastTokens - burstStartTokens, lastIncreaseAt - burstStartAt)
+      const endAt = lastIncreaseAt > burstStartAt
+        ? lastIncreaseAt
+        : (now ?? lastIncreaseAt)
+      return applyRate('avg', burstTokens(), endAt - burstStartAt)
     },
   }
 }
@@ -89,7 +109,9 @@ export function useOutputTokenRate(
   const tracker = createOutputRateTracker()
   const snapshot = ref<OutputRateState>(tracker.getState())
   let idleTimer = 0
+  let tickTimer = 0
   const IDLE_MS = 1200
+  const TICK_MS = 200
 
   function sync() {
     snapshot.value = { ...tracker.getState() }
@@ -102,14 +124,31 @@ export function useOutputTokenRate(
     }
   }
 
-  function settleIdle() {
-    idleTimer = 0
-    tracker.settle()
+  function stopTicking() {
+    if (tickTimer) {
+      clearInterval(tickTimer)
+      tickTimer = 0
+    }
+  }
+
+  function startTicking() {
+    if (tickTimer) return
+    tickTimer = window.setInterval(() => {
+      tracker.tick(performance.now())
+      sync()
+    }, TICK_MS)
+  }
+
+  function settleNow() {
+    clearIdle()
+    stopTicking()
+    tracker.settle(performance.now())
     sync()
   }
 
   watch(sessionKey, () => {
     clearIdle()
+    stopTicking()
     tracker.reset(toValue(completionTokens))
     sync()
   }, { immediate: true })
@@ -117,22 +156,25 @@ export function useOutputTokenRate(
   watch(() => toValue(completionTokens), (tokens) => {
     tracker.ingest(tokens, performance.now())
     sync()
-    if (snapshot.value.kind === 'live') {
+    if (tracker.isOutputting()) {
+      startTicking()
       clearIdle()
-      idleTimer = window.setTimeout(settleIdle, IDLE_MS)
+      idleTimer = window.setTimeout(settleNow, IDLE_MS)
     } else {
       clearIdle()
+      stopTicking()
     }
   })
 
   watch(() => toValue(isRunning), (running) => {
     if (running) return
-    clearIdle()
-    tracker.settle()
-    sync()
+    settleNow()
   })
 
-  onBeforeUnmount(clearIdle)
+  onBeforeUnmount(() => {
+    clearIdle()
+    stopTicking()
+  })
 
   return {
     rateKind: computed(() => snapshot.value.kind),

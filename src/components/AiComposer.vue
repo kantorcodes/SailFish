@@ -1258,11 +1258,11 @@ const consumedTokenTitle = computed(() => {
   if (!stats.consumedTokens || stats.consumedTokens <= 0) return ''
   const prompt = (stats.consumedPromptTokens ?? 0).toLocaleString()
   const completion = (stats.consumedCompletionTokens ?? 0).toLocaleString()
-  if (outputRateText.value && outputRateKind.value === 'live') {
-    return t('ai.sessionConsumedTitleLiveRate', { prompt, completion, rate: outputRateText.value })
-  }
   if (outputRateText.value && outputRateKind.value === 'avg') {
-    return t('ai.sessionConsumedTitleAvgRate', { prompt, completion, rate: outputRateText.value })
+    return t('ai.sessionConsumedTitleWithAvgRate', { prompt, completion, rate: outputRateText.value })
+  }
+  if (outputRateText.value) {
+    return t('ai.sessionConsumedTitleWithRate', { prompt, completion, rate: outputRateText.value })
   }
   return t('ai.sessionConsumedTitle', { prompt, completion })
 })

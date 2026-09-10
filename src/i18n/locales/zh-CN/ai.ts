@@ -169,9 +169,9 @@ export default {
     composerImageLimit: '图片数量或大小已达上限，请先移除部分图片',
     context: '上下文',
     contextUsed: '已使用',
-    sessionConsumedTitle: '输入 {prompt} · 输出 {completion} tokens',
-    sessionConsumedTitleLiveRate: '输入 {prompt} · 输出 {completion} · 出速 {rate} tokens/s',
-    sessionConsumedTitleAvgRate: '输入 {prompt} · 输出 {completion} · 均速 {rate} tokens/s',
+    sessionConsumedTitle: '输入 {prompt} · 输出 {completion}',
+    sessionConsumedTitleWithRate: '输入 {prompt} · 输出 {completion} · {rate} tokens/s',
+    sessionConsumedTitleWithAvgRate: '输入 {prompt} · 输出 {completion} · 均速 {rate} tokens/s',
     contextUsageShowDetail: '查看组成',
     contextUsageHideDetail: '收起组成',
     contextComposition: {

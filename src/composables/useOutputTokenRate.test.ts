@@ -39,12 +39,29 @@ describe('createOutputRateTracker', () => {
     expect(tracker.ingest(10_000, 0)).toEqual({ kind: null, rate: null })
   })
 
-  it('吐字中报出速，停住后改均速', () => {
+  it('吐字中跟上速度，停住后留下平均', () => {
     const tracker = createOutputRateTracker()
     tracker.reset(1000)
     expect(tracker.ingest(1100, 1000)).toEqual({ kind: null, rate: null })
     expect(tracker.ingest(1300, 2000)).toEqual({ kind: 'live', rate: 300 })
     expect(tracker.settle()).toEqual({ kind: 'avg', rate: 300 })
+  })
+
+  it('只跳一次数字时，用停住的时刻算平均', () => {
+    const tracker = createOutputRateTracker()
+    tracker.reset(0)
+    tracker.ingest(231, 1000)
+    expect(tracker.settle()).toEqual({ kind: null, rate: null })
+    tracker.reset(0)
+    tracker.ingest(231, 1000)
+    expect(tracker.settle(2200)).toEqual({ kind: 'avg', rate: 192.5 })
+  })
+
+  it('首包之后用墙上时钟也能出价', () => {
+    const tracker = createOutputRateTracker()
+    tracker.reset(0)
+    tracker.ingest(80, 0)
+    expect(tracker.tick(200)).toEqual({ kind: 'live', rate: 400 })
   })
 
   it('停住后再吐字另起一段', () => {
