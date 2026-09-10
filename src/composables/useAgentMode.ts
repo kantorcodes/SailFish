@@ -1361,9 +1361,6 @@ export function useAgentMode(
     }
 
     const startTime = Date.now()
-    if (!queued) {
-      inputText.value = ''
-    }
 
     // 并发软上限检查：超过 MAX_CONCURRENT_AGENTS 时提示用户，但不强制阻止
     if (terminalStore.isAtConcurrencyLimit) {
@@ -1396,14 +1393,15 @@ export function useAgentMode(
             : {}),
         }
       : terminalStore.getAgentContext(tabId)
-    // 终端模式下 ptyId 必须存在（分屏取激活窗格，单屏取 tab.ptyId）
-    const runPtyId = isAssistantMode
-      ? hostedPtyId
-      : (currentTab.value ? terminalStore.getActivePtyId(currentTab.value) : undefined)
-    if (!isAssistantMode && (!context || !runPtyId)) {
+    // 终端还在连接、甚至连不上时可以没有可用窗格——对话照样开跑，不能把字悄悄扔掉
+    if (!isAssistantMode && !context) {
       log.error('无法获取终端上下文')
       putBackQueued()
       return
+    }
+
+    if (!queued) {
+      inputText.value = ''
     }
 
     // 同步收集附件/图片（不阻塞 UI）；排队项只认入队时的快照，绝不回读输入框
