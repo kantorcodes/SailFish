@@ -1788,6 +1788,13 @@ export const useTerminalStore = defineStore('terminal', () => {
   let lastSplitError: string | null = null
   function getLastSplitError(): string | null { return lastSplitError }
 
+  /** 这一页里是否已有一扇自己在说连接失败——有的话就不要再弹窗 */
+  function tabHasPaneConnectionError(tabId: string): boolean {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab?.splitLayout) return false
+    return getAllTerminalPanes(tab.splitLayout).some(p => Boolean(p.connectionError))
+  }
+
   async function splitTerminal(
     direction: 'horizontal' | 'vertical',
     target: SplitTarget = { kind: 'inherit' },
@@ -1865,8 +1872,9 @@ export const useTerminalStore = defineStore('terminal', () => {
       `Split done direction=${direction} activePtyId=${activePane.ptyId} newPtyId=${newPtyId} ` +
       `panes=${getAllTerminalPanes(currentTab.splitLayout).map(p => p.ptyId).join(',')}`
     )
+    const live = findPaneById(currentTab.splitLayout, newPane.id)
     // 窗格已经在，连不上也留着给用户看；Agent 仍拿失败，避免当成已连上接着下命令
-    return newPane.connectionError ? null : newPtyId
+    return live?.connectionError ? null : newPtyId
   }
 
   /**
@@ -2092,7 +2100,8 @@ export const useTerminalStore = defineStore('terminal', () => {
     updatePaneLabels(currentTab.splitLayout)
     setActivePaneInTab(currentTab.id, newPane.id)
     assertTabLayoutInvariant(currentTab)
-    return newPane
+    // 进布局后拿树上那份，后面改状态才看得见（不能拿刚 new 出来的那份去比对）
+    return findPaneById(currentTab.splitLayout, newPane.id) ?? newPane
   }
 
   /**
@@ -2104,15 +2113,17 @@ export const useTerminalStore = defineStore('terminal', () => {
     pane: SplitPane,
     resolved: ResolvedSplitTarget
   ): Promise<string | null> {
+    const paneId = pane.id
     const attemptId = resolved.terminalType === 'ssh' ? uuidv4() : undefined
     if (attemptId) pane.connectAttemptId = attemptId
     const connectedId = await createTerminalInstanceForTarget(resolved, {
       reuseId: pane.ptyId,
       attemptId
     })
-    const stillAttached = tab.splitLayout
-      && getAllTerminalPanes(tab.splitLayout).includes(pane)
-    if (!stillAttached) {
+    const live = tab.splitLayout
+      ? findPaneById(tab.splitLayout, paneId)
+      : null
+    if (!live || live.type !== 'terminal') {
       if (connectedId) {
         if (resolved.terminalType === 'local') {
           window.electronAPI.pty.dispose(connectedId).catch(() => {})
@@ -2122,19 +2133,19 @@ export const useTerminalStore = defineStore('terminal', () => {
       }
       return null
     }
-    pane.connectAttemptId = undefined
-    pane.isConnecting = false
+    live.connectAttemptId = undefined
+    live.isConnecting = false
     if (!connectedId) {
-      pane.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
-      return pane.ptyId ?? null
+      live.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
+      return live.ptyId ?? null
     }
-    if (pane.ptyId !== connectedId) pane.ptyId = connectedId
-    pane.connectionError = undefined
-    if (pane.isActive) {
-      tab.ptyId = pane.ptyId
+    if (live.ptyId !== connectedId) live.ptyId = connectedId
+    live.connectionError = undefined
+    if (live.isActive) {
+      tab.ptyId = live.ptyId
       tab.isConnected = true
     }
-    return pane.ptyId ?? connectedId
+    return live.ptyId ?? connectedId
   }
 
   /**
@@ -3964,6 +3975,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     openTerminalOnTab,
     tabHostsTerminal,
     getLastSplitError,
+    tabHasPaneConnectionError,
     closePane: closePaneInternal,
     setActivePaneInTab,
     updatePaneSize,

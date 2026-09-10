@@ -254,7 +254,7 @@ const executeOpen = async (
         ? await terminalStore.splitTerminal(intent === 'split-h' ? 'horizontal' : 'vertical', target, tab.id)
         : await terminalStore.openTerminalOnTab(tab.id, target)
     }
-    if (!opened) {
+    if (!opened && !terminalStore.tabHasPaneConnectionError(tab.id)) {
       const err = terminalStore.getLastSplitError()
       await showAlert(t('common.error'), err || t('session.splitNeedSession'))
     }
