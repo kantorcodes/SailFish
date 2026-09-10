@@ -200,21 +200,22 @@ const canShowDropZones = computed(() => {
   return true
 })
 
+/** 四边各占四成，中间只留约两成空着，别大半扇都松手没反应 */
+const DROP_EDGE_RATIO = 0.4
+
 function hitTestEdge(e: DragEvent, el: HTMLElement): PaneEdge | null {
   const rect = el.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
-  const band = Math.max(24, Math.min(rect.width, rect.height) * 0.28)
-  const dl = x
-  const dr = rect.width - x
-  const dt = y
-  const db = rect.height - y
-  const min = Math.min(dl, dr, dt, db)
-  if (min > band) return null
-  if (min === dl) return 'left'
-  if (min === dr) return 'right'
-  if (min === dt) return 'top'
-  return 'bottom'
+  const bandX = Math.max(24, rect.width * DROP_EDGE_RATIO)
+  const bandY = Math.max(24, rect.height * DROP_EDGE_RATIO)
+  const hits: { edge: PaneEdge; dist: number }[] = []
+  if (x <= bandX) hits.push({ edge: 'left', dist: x })
+  if (rect.width - x <= bandX) hits.push({ edge: 'right', dist: rect.width - x })
+  if (y <= bandY) hits.push({ edge: 'top', dist: y })
+  if (rect.height - y <= bandY) hits.push({ edge: 'bottom', dist: rect.height - y })
+  if (hits.length === 0) return null
+  return hits.reduce((a, b) => (a.dist <= b.dist ? a : b)).edge
 }
 
 function handleLayoutDragOver(e: DragEvent) {
@@ -489,28 +490,28 @@ function handlePaneDragEnd() {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 28%;
+  width: 40%;
 }
 
 .pane-drop-edge.right {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 28%;
+  width: 40%;
 }
 
 .pane-drop-edge.top {
   left: 0;
   right: 0;
   top: 0;
-  height: 28%;
+  height: 40%;
 }
 
 .pane-drop-edge.bottom {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 28%;
+  height: 40%;
 }
 
 .split-pane.terminal:hover .pane-connection-label {
