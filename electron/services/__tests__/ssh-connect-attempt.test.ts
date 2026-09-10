@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { forceCloseClient, SshConnectAttempt } from '../ssh-connect-attempt'
+import { SSH_CONNECT_CANCELLED } from '@shared/types'
+import { forceCloseClient, SshConnectAttempt, SshConnectCancelledError } from '../ssh-connect-attempt'
 import type { Client } from 'ssh2'
 
 function fakeClient(overrides: Partial<Client> = {}): Client {
@@ -23,6 +24,12 @@ describe('forceCloseClient', () => {
       destroy: vi.fn(() => { throw new Error('already destroyed') })
     })
     expect(() => forceCloseClient(client)).not.toThrow()
+  })
+})
+
+describe('SshConnectCancelledError', () => {
+  it('默认 message 是前后端共用的取消码', () => {
+    expect(new SshConnectCancelledError().message).toBe(SSH_CONNECT_CANCELLED)
   })
 })
 

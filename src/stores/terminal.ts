@@ -9,6 +9,7 @@ import type { TerminalScreenService, ScreenContent } from '../services/terminal-
 import type { TerminalSnapshotManager, TerminalSnapshot, TerminalDiff } from '../services/terminal-snapshot.service'
 import { useAssistantArtifactStore } from '@sailfish/workbench-assistant/artifact/store'
 import { createLogger } from '../utils/logger'
+import { formatSshConnectFailure } from '../utils/ssh-connect-error'
 import {
   findActivePaneInLayout,
   findPaneById,
@@ -407,7 +408,7 @@ export const useTerminalStore = defineStore('terminal', () => {
    */
   const reconnectEpochByPtyId = ref<Record<string, number>>({})
   /** 按窗格去重：并发 reconnectSsh / 按钮+Agent 同时触发时共享同一 Promise（非响应式） */
-  const inFlightReconnectByPtyId = new Map<string, Promise<{ success: boolean; needsSession?: boolean; error?: string }>>()
+  const inFlightReconnectByPtyId = new Map<string, Promise<{ success: boolean; needsSession?: boolean; cancelled?: boolean; error?: string }>>()
   /**
    * 握手中的重连尝试（窗格 ptyId → attemptId，非响应式）。
    * 关窗格 / 关 tab 时据此当场掐断，不等连接超时；多窗格并发重连各记一条互不覆盖。
@@ -772,8 +773,11 @@ export const useTerminalStore = defineStore('terminal', () => {
       if (!tabs.value.some(t => t.id === id)) return id
       console.error('Failed to create terminal:', error)
       reactiveTab.isConnected = false
-      // 保存连接错误信息，便于显示给用户
-      reactiveTab.connectionError = error instanceof Error ? error.message : '连接失败'
+      const parsed = formatSshConnectFailure(error, i18n.global.t('terminal.connectionFailed'))
+      // 用户取消不是连接失败，不要把 IPC 原文写到这一页上
+      if (!parsed.cancelled) {
+        reactiveTab.connectionError = parsed.message
+      }
     } finally {
       reactiveTab.connectAttemptId = undefined
       reactiveTab.isLoading = false
@@ -1265,7 +1269,7 @@ export const useTerminalStore = defineStore('terminal', () => {
   async function reconnectSsh(
     tabId: string,
     targetPtyId?: string
-  ): Promise<{ success: boolean; needsSession?: boolean; error?: string }> {
+  ): Promise<{ success: boolean; needsSession?: boolean; cancelled?: boolean; error?: string }> {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) {
       console.error('Cannot reconnect: tab not found')
@@ -1311,7 +1315,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     tab: TerminalTab,
     tabId: string,
     lookupPtyId: string
-  ): Promise<{ success: boolean; needsSession?: boolean; error?: string }> {
+  ): Promise<{ success: boolean; needsSession?: boolean; cancelled?: boolean; error?: string }> {
     const paneNode = tab.splitLayout
       ? getAllTerminalPanes(tab.splitLayout).find(p => p.ptyId === lookupPtyId)
       : undefined
@@ -1449,12 +1453,16 @@ export const useTerminalStore = defineStore('terminal', () => {
       if (wholeTabReconnect) {
         tab.isConnected = false
       }
-      const msg = error instanceof Error ? error.message : String(error)
+      const parsed = formatSshConnectFailure(error, i18n.global.t('terminal.connectionFailed'))
+      if (parsed.cancelled) {
+        if (paneNode) paneNode.isConnecting = false
+        return { success: false, cancelled: true }
+      }
       if (paneNode) {
         paneNode.isConnecting = false
-        paneNode.connectionError = msg
+        paneNode.connectionError = parsed.message
       }
-      return { success: false, error: msg }
+      return { success: false, error: parsed.message }
     } finally {
       markPtyReconnecting(oldPtyId, false)
       if (reconnectAttemptByPtyId.get(oldPtyId) === attemptId) {
@@ -1788,7 +1796,26 @@ export const useTerminalStore = defineStore('terminal', () => {
    */
   /** 最近一次分屏失败的具体原因——给 Agent / UI 调用方读取（非 reactive，仅模块内单值缓存） */
   let lastSplitError: string | null = null
+  let lastSplitCancelled = false
   function getLastSplitError(): string | null { return lastSplitError }
+  function wasLastSplitCancelled(): boolean { return lastSplitCancelled }
+
+  function resetLastSplitOutcome(): void {
+    lastSplitError = null
+    lastSplitCancelled = false
+  }
+
+  function recordConnectFailure(error: unknown): { cancelled: boolean; message: string } {
+    const parsed = formatSshConnectFailure(error, i18n.global.t('terminal.connectionFailed'))
+    if (parsed.cancelled) {
+      lastSplitCancelled = true
+      lastSplitError = null
+    } else {
+      lastSplitCancelled = false
+      lastSplitError = parsed.message
+    }
+    return parsed
+  }
 
   /** 这一页里是否已有一扇自己在说连接失败——有的话就不要再弹窗 */
   function tabHasPaneConnectionError(tabId: string): boolean {
@@ -1802,7 +1829,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     target: SplitTarget = { kind: 'inherit' },
     tabId?: string
   ): Promise<string | null> {
-    lastSplitError = null
+    resetLastSplitOutcome()
 
     // tabId 缺省时操作 activeTab（UI 用户从右键菜单点击时走这条）
     // 显式传 tabId 时操作那个 tab——split-pane-handler 给 Agent 工具调用走这条，
@@ -1876,7 +1903,8 @@ export const useTerminalStore = defineStore('terminal', () => {
     )
     const live = findPaneById(currentTab.splitLayout, newPane.id)
     // 窗格已经在，连不上也留着给用户看；Agent 仍拿失败，避免当成已连上接着下命令
-    return live?.connectionError ? null : newPtyId
+    // 用户取消不是失败：这一扇多半已经关了，不要把占位 id 当成连上了
+    return lastSplitCancelled || live?.connectionError ? null : newPtyId
   }
 
   /**
@@ -1888,7 +1916,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     edge: PaneEdge,
     target: SplitTarget
   ): Promise<string | null> {
-    lastSplitError = null
+    resetLastSplitOutcome()
     const currentTab = tabs.value.find(t => t.id === tabId)
     if (!currentTab) {
       lastSplitError = `tab not found: ${tabId}`
@@ -1927,7 +1955,9 @@ export const useTerminalStore = defineStore('terminal', () => {
       return null
     }
 
-    return connectPendingSplitPane(currentTab, newPane, resolved)
+    const newPtyId = await connectPendingSplitPane(currentTab, newPane, resolved)
+    const live = findPaneById(currentTab.splitLayout, newPane.id)
+    return lastSplitCancelled || live?.connectionError ? null : newPtyId
   }
 
   /**
@@ -1965,7 +1995,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     tabId: string,
     target: SplitTarget = { kind: 'local' }
   ): Promise<string | null> {
-    lastSplitError = null
+    resetLastSplitOutcome()
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) {
       lastSplitError = `tab not found: ${tabId}`
@@ -1985,10 +2015,10 @@ export const useTerminalStore = defineStore('terminal', () => {
     const resolved = resolveSplitTarget(target.kind === 'inherit' ? { kind: 'local' } : target, seed)
     if (!resolved) return null
 
-    const newPtyId = await createTerminalInstanceForTarget(resolved)
-    if (!newPtyId) return null
+    const created = await createTerminalInstanceForTarget(resolved)
+    if (!created.id) return null
 
-    tab.ptyId = newPtyId
+    tab.ptyId = created.id
     tab.isConnected = true
     tab.connectionError = undefined
     if (resolved.terminalType === 'ssh') {
@@ -2009,15 +2039,15 @@ export const useTerminalStore = defineStore('terminal', () => {
     ensureRootSplitLayoutForTab(tab, resolved.terminalType)
     const leaf = tab.splitLayout ? getAllTerminalPanes(tab.splitLayout)[0] : undefined
     if (leaf) {
-      leaf.ptyId = newPtyId
+      leaf.ptyId = created.id
       leaf.terminalType = resolved.terminalType
       leaf.sshConfig = resolved.sshConfig
       leaf.sshSessionId = resolved.sshSessionId
       if (resolved.label) leaf.label = resolved.label
     }
     assertTabLayoutInvariant(tab)
-    log.info(`Opened terminal on tab=${tabId} ptyId=${newPtyId} type=${resolved.terminalType}`)
-    return newPtyId
+    log.info(`Opened terminal on tab=${tabId} ptyId=${created.id} type=${resolved.terminalType}`)
+    return created.id
   }
 
   /**
@@ -2121,10 +2151,11 @@ export const useTerminalStore = defineStore('terminal', () => {
     const run = (async (): Promise<{ success: boolean; error?: string }> => {
       const attemptId = resolved.terminalType === 'ssh' ? uuidv4() : undefined
       if (attemptId) pane.connectAttemptId = attemptId
-      const connectedId = await createTerminalInstanceForTarget(resolved, {
+      const created = await createTerminalInstanceForTarget(resolved, {
         reuseId: pane.ptyId,
         attemptId
       })
+      const connectedId = created.id
       const live = tab.splitLayout
         ? findPaneById(tab.splitLayout, paneId)
         : null
@@ -2141,6 +2172,11 @@ export const useTerminalStore = defineStore('terminal', () => {
       live.connectAttemptId = undefined
       live.isConnecting = false
       if (!connectedId) {
+        if (created.cancelled) {
+          // 取消后这一扇只是握手占位，收掉；别留成「已就绪」去挂一扇空终端
+          await closePaneInternal(tab.id, live.id)
+          return { success: false }
+        }
         live.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
         return { success: false, error: live.connectionError }
       }
@@ -2177,7 +2213,7 @@ export const useTerminalStore = defineStore('terminal', () => {
       sshSessionId?: string
     },
     options?: { reuseId?: string; attemptId?: string }
-  ): Promise<string | null> {
+  ): Promise<{ id: string | null; cancelled: boolean }> {
     const configStore = useConfigStore()
     try {
       if (resolved.terminalType === 'local') {
@@ -2187,23 +2223,23 @@ export const useTerminalStore = defineStore('terminal', () => {
           rows: 24,
           encoding: localEncoding
         })
-        return created.id
+        return { id: created.id, cancelled: false }
       }
 
       if (!resolved.sshSessionId) {
         lastSplitError = 'ssh target missing sessionId'
-        return null
+        return { id: null, cancelled: false }
       }
       const session = configStore.sshSessions.find(s => s.id === resolved.sshSessionId)
       if (!session) {
         lastSplitError = `SSH session not found: ${resolved.sshSessionId}`
         log.error('SSH session not found:', resolved.sshSessionId)
-        return null
+        return { id: null, cancelled: false }
       }
 
       const jumpHost = configStore.getEffectiveJumpHost(session)
 
-      return await window.electronAPI.ssh.connect({
+      const id = await window.electronAPI.ssh.connect({
         host: session.host,
         port: session.port,
         username: session.username,
@@ -2218,11 +2254,11 @@ export const useTerminalStore = defineStore('terminal', () => {
         reuseId: options?.reuseId,
         attemptId: options?.attemptId
       })
+      return { id, cancelled: false }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      lastSplitError = msg
+      const parsed = recordConnectFailure(error)
       log.error('Failed to create terminal instance:', error)
-      return null
+      return { id: null, cancelled: parsed.cancelled }
     }
   }
 
@@ -3995,6 +4031,7 @@ export const useTerminalStore = defineStore('terminal', () => {
     openTerminalOnTab,
     tabHostsTerminal,
     getLastSplitError,
+    wasLastSplitCancelled,
     tabHasPaneConnectionError,
     closePane: closePaneInternal,
     setActivePaneInTab,

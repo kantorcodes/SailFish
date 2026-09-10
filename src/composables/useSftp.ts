@@ -1,4 +1,6 @@
 import { ref, computed, onUnmounted } from 'vue'
+import i18n from '../i18n'
+import { formatSshConnectFailure, unwrapIpcInvokeError } from '../utils/ssh-connect-error'
 
 // SFTP 文件信息类型
 export interface SftpFileInfo {
@@ -173,13 +175,14 @@ export function useSftp() {
 
         return true
       } else {
-        // 显示后端返回的具体错误信息
-        error.value = result.error || '连接失败'
+        error.value = formatSshConnectFailure(
+          result.error || '',
+          i18n.global.t('terminal.connectionFailed')
+        ).message
         return false
       }
     } catch (e) {
-      // 显示具体错误信息
-      error.value = e instanceof Error ? e.message : '连接失败'
+      error.value = formatSshConnectFailure(e, i18n.global.t('terminal.connectionFailed')).message
       return false
     } finally {
       isConnecting.value = false
@@ -232,7 +235,8 @@ export function useSftp() {
         error.value = result.error || '无法访问目录'
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : '加载目录失败'
+      const raw = e instanceof Error ? e.message : ''
+      error.value = unwrapIpcInvokeError(raw) || '加载目录失败'
     } finally {
       isLoading.value = false
     }

@@ -14,6 +14,7 @@ import { getIntegratedTheme } from '../themes'
 import { TerminalScreenService, type ScreenContent } from '../services/terminal-screen.service'
 import { TerminalSnapshotManager, type TerminalSnapshot, type TerminalDiff } from '../services/terminal-snapshot.service'
 import { createLogger } from '../utils/logger'
+import { formatSshConnectFailure } from '../utils/ssh-connect-error'
 import { matchAccelerator, formatAccelerator } from '../utils/shortcut'
 import { toast } from '../composables/useToast'
 import '@xterm/xterm/css/xterm.css'
@@ -1300,6 +1301,10 @@ const handleReconnect = async () => {
       return
     }
 
+    if (result.cancelled) {
+      return
+    }
+
     if (!result.success) {
       const detail = result.error ? `: ${result.error}` : ''
       terminal?.write(`\r\n\x1b[31m[${t('terminal.reconnectFailed')}]${detail}\x1b[0m\r\n`)
@@ -1310,9 +1315,9 @@ const handleReconnect = async () => {
     sshDisconnected.value = false
     terminal?.write(`\r\n\x1b[32m[连接成功]\x1b[0m\r\n`)
   } catch (error) {
-    // 在终端显示错误消息
-    const errorMsg = error instanceof Error ? error.message : t('ai.unknownError')
-    terminal?.write(`\r\n\x1b[31m[${t('terminal.reconnectFailed')}] ${errorMsg}\x1b[0m\r\n`)
+    const parsed = formatSshConnectFailure(error, t('ai.unknownError'))
+    if (parsed.cancelled) return
+    terminal?.write(`\r\n\x1b[31m[${t('terminal.reconnectFailed')}] ${parsed.message}\x1b[0m\r\n`)
     terminal?.write(`\x1b[33m${t('terminal.reconnectHint')}\x1b[0m\r\n`)
   }
 }

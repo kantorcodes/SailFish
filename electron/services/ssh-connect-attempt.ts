@@ -1,8 +1,9 @@
 import type { Client } from 'ssh2'
+import { SSH_CONNECT_CANCELLED } from '@shared/types'
 
 /** 用户主动放弃连接时抛出，调用方据此区别于真正的连接失败 */
 export class SshConnectCancelledError extends Error {
-  constructor(message = 'SSH connect cancelled by user') {
+  constructor(message = SSH_CONNECT_CANCELLED) {
     super(message)
     this.name = 'SshConnectCancelledError'
   }

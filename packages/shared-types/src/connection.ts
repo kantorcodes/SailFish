@@ -71,6 +71,12 @@ export type SshEncoding =
   | 'koi8-r'        // 俄语
   | 'windows-1251'  // 俄语 (Windows)
 
+/**
+ * 用户主动放弃 SSH 握手时的稳定错误码。
+ * 经 IPC 后只剩 message，前后端用同一条识别「取消」，不要当连接失败弹窗。
+ */
+export const SSH_CONNECT_CANCELLED = 'SSH_CONNECT_CANCELLED'
+
 /** SSH 连接配置（IPC 边界） */
 export interface SshConfig {
   host: string

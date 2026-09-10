@@ -126,6 +126,9 @@ async function dispatch(
       const t1 = Date.now()
       log.info(`open done ptyId=${ptyId || 'null'} elapsed=${t1 - t0}ms`)
       if (!ptyId) {
+        if (store.wasLastSplitCancelled()) {
+          return { ok: false, error: 'SSH connection cancelled' }
+        }
         const reason = store.getLastSplitError() || 'terminal creation failed, or invalid SSH sessionId'
         return { ok: false, error: `Open terminal failed: ${reason}` }
       }
@@ -146,6 +149,9 @@ async function dispatch(
       const t1 = Date.now()
       log.info(`split done ptyId=${ptyId || 'null'} elapsed=${t1 - t0}ms`)
       if (!ptyId) {
+        if (store.wasLastSplitCancelled()) {
+          return { ok: false, error: 'SSH connection cancelled' }
+        }
         const reason = store.getLastSplitError() || 'no active tab, terminal creation failed, or invalid SSH sessionId'
         return { ok: false, error: `Split failed: ${reason}` }
       }
@@ -263,6 +269,9 @@ async function dispatch(
             error: result.error || 'Cannot reconnect: SSH session was not saved. Ask the user to reconnect from the UI or save the session.',
             data: { needsSession: true, ptyId: targetPtyId }
           }
+        }
+        if (result.cancelled) {
+          return { ok: false, error: 'SSH connection cancelled', data: { ptyId: targetPtyId } }
         }
         if (!result.success) {
           return {
