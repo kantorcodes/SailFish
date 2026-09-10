@@ -1,6 +1,7 @@
 import { ref, type ComputedRef, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore, type SshSession, type SessionGroup } from '../stores/config'
+import { useTerminalStore } from '../stores/terminal'
 import type { GroupedSessions } from './useSessionList'
 
 export function useSessionDragDrop(
@@ -9,6 +10,7 @@ export function useSessionDragDrop(
 ) {
   const { t } = useI18n()
   const configStore = useConfigStore()
+  const terminalStore = useTerminalStore()
 
   // 拖拽前保存的折叠状态
   const savedCollapsedState = ref<Set<string> | null>(null)
@@ -24,10 +26,11 @@ export function useSessionDragDrop(
     draggingSession.value = session
     draggingGroupName.value = null
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.effectAllowed = 'copyMove'
       event.dataTransfer.setData('text/plain', session.id)
       event.dataTransfer.setData('application/x-session', 'true')
     }
+    terminalStore.beginLayoutDrag({ kind: 'ssh-session', sessionId: session.id })
     const target = event.target as HTMLElement
     setTimeout(() => { target.classList.add('dragging') }, 0)
   }
@@ -72,6 +75,7 @@ export function useSessionDragDrop(
     dragOverGroupName.value = null
     dragOverSessionId.value = null
     dragOverTargetGroupName.value = null
+    setTimeout(() => terminalStore.endLayoutDrag(), 0)
     const target = event.target as HTMLElement
     target.classList.remove('dragging')
   }

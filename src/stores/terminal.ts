@@ -11,11 +11,27 @@ import { useAssistantArtifactStore } from '@sailfish/workbench-assistant/artifac
 import { createLogger } from '../utils/logger'
 import {
   findActivePaneInLayout,
-  replacePaneInLayout,
   findPaneById,
   getAllTerminalPanes,
-  removePaneFromLayout
+  removePaneFromLayout,
+  movePaneToEdge as movePaneToEdgeInTree,
+  splitLeafAtEdge,
+  type PaneEdge,
 } from './split-pane-tree'
+
+export type { PaneEdge }
+
+export type LayoutDrag =
+  | { kind: 'pane'; tabId: string; paneId: string }
+  | { kind: 'ssh-session'; sessionId: string }
+  | { kind: 'new-local' }
+
+export type SshSplitAtEdgeRequest = {
+  sessionId: string
+  tabId: string
+  paneId: string
+  edge: PaneEdge
+}
 import { WELCOME_COMPOSER_TAB_ID } from '../constants/welcome-composer'
 import { showConfirm } from '../composables/useConfirm'
 import type { PendingImage } from '../composables/useImageUpload'
@@ -241,6 +257,12 @@ export interface SplitPane {
   isActive?: boolean    // 是否为当前焦点窗格
   // 布局属性
   size?: number         // 窗格大小（百分比，0-100）
+  /** 这一扇还在握手（新开或重试），先出窗格、不挂终端画面 */
+  isConnecting?: boolean
+  /** 这一扇自己的连接失败原因（不要拿整页 loading 盖住旁边已连上的窗格） */
+  connectionError?: string
+  /** 正在进行的 SSH 握手，关这一扇时用来当场掐断 */
+  connectAttemptId?: string
 }
 
 /**
@@ -346,6 +368,29 @@ export const useTerminalStore = defineStore('terminal', () => {
    * 或关掉了最后一个终端 tab（仍留在终端，只是空了）。
    */
   const terminalPlaceActive = ref(false)
+
+  /** 正在拖去排放 / 新建的东西；窗格四边落点只认这个 */
+  const layoutDrag = ref<LayoutDrag | null>(null)
+  /** 主机拖到边上：交给主机列表走原来的连上 / 问凭证 */
+  const sshSplitAtEdgeRequest = ref<SshSplitAtEdgeRequest | null>(null)
+
+  function beginLayoutDrag(drag: LayoutDrag): void {
+    layoutDrag.value = drag
+  }
+
+  function endLayoutDrag(): void {
+    layoutDrag.value = null
+  }
+
+  function requestSshSplitAtEdge(request: SshSplitAtEdgeRequest): void {
+    sshSplitAtEdgeRequest.value = request
+  }
+
+  function consumeSshSplitAtEdgeRequest(): SshSplitAtEdgeRequest | null {
+    const request = sshSplitAtEdgeRequest.value
+    sshSplitAtEdgeRequest.value = null
+    return request
+  }
 
   // 终端计数器（用于生成唯一标题）
   const localTerminalCounter = ref(0)
@@ -1016,6 +1061,10 @@ export const useTerminalStore = defineStore('terminal', () => {
     }
     if (tab.splitLayout) {
       for (const pane of getAllTerminalPanes(tab.splitLayout)) {
+        if (pane.connectAttemptId) {
+          cancelSshHandshake(pane.connectAttemptId)
+          pane.connectAttemptId = undefined
+        }
         if (pane.ptyId) cancelPaneReconnectHandshake(pane.ptyId)
       }
     }
@@ -1381,6 +1430,10 @@ export const useTerminalStore = defineStore('terminal', () => {
         }
       }
 
+      if (paneNode) {
+        paneNode.isConnecting = false
+        paneNode.connectionError = undefined
+      }
       bumpPtyId = sshId
       return { success: true }
     } catch (error) {
@@ -1395,6 +1448,10 @@ export const useTerminalStore = defineStore('terminal', () => {
         tab.isConnected = false
       }
       const msg = error instanceof Error ? error.message : String(error)
+      if (paneNode) {
+        paneNode.isConnecting = false
+        paneNode.connectionError = msg
+      }
       return { success: false, error: msg }
     } finally {
       markPtyReconnecting(oldPtyId, false)
@@ -1795,72 +1852,99 @@ export const useTerminalStore = defineStore('terminal', () => {
       return null
     }
 
-    const newPtyId = await createTerminalInstanceForTarget(resolved)
-    if (!newPtyId) {
-      lastSplitError = lastSplitError || 'failed to create new terminal instance'
+    // 先出窗格再握手：界面立刻能看到「正在连接」，不要干等连上才切开。
+    const edge = direction === 'horizontal' ? 'right' : 'bottom'
+    const newPane = placePendingSplitPane(currentTab, activePane, edge, resolved)
+    if (!newPane) {
+      lastSplitError = lastSplitError || 'failed to place new pane'
       return null
     }
 
-    // 把 active 终端节点替换为一个 split 子容器（含原节点 + 新节点）。
-    //
-    // Terminal 实例的存活由 TerminalTabView 的 Teleport 池保证（Terminal 组件按 ptyId
-    // 在外层 v-for 维护，DOM 通过 Teleport 投影到 SplitPaneView 渲染的占位 div）。
-    // 因此布局节点 id 是否稳定，对 xterm 内容不再敏感——本函数只关心数据正确性。
-    const newPane: SplitPane = {
-      id: uuidv4(),
-      type: 'terminal',
-      ptyId: newPtyId,
-      terminalType: resolved.terminalType,
-      sshConfig: resolved.sshConfig,
-      sshSessionId: resolved.sshSessionId,
-      label: resolved.label || i18n.global.t('terminal.split.label.new'),
-      isActive: true,
-      size: 50
-    }
-
-    // 复用原节点的 id（不要 uuidv4 新建）：
-    // - Agent 通过 list_panes 拿到的 paneId 在分屏后仍然有效，避免"持旧 id 调 close_pane 静默失败"
-    // - 用户体验上"原本那个窗格"在结构上确实是同一个，标识符延续也更合理
-    const originalChild: SplitPane = {
-      id: activePane.id,
-      type: 'terminal',
-      ptyId: activePane.ptyId,
-      terminalType: activePane.terminalType,
-      sshConfig: activePane.sshConfig,
-      sshSessionId: activePane.sshSessionId,
-      label: activePane.label,
-      isActive: false,
-      size: 50
-    }
-
-    // 继承被替换节点在父容器中分配到的 size，避免破坏外层窗格已有的尺寸比例。
-    // 否则二次分屏（如把右窗格再上下分）会让 splitContainer 失去 flex 权重，
-    // 表现为外层左右比例从 50:50 变成 50:1，新嵌套的窗格被挤成几乎不可见。
-    const splitContainer: SplitPane = {
-      id: uuidv4(),
-      type: 'split',
-      direction,
-      size: activePane.size,
-      children: [originalChild, newPane]
-    }
-
-    replacePaneInLayout(currentTab.splitLayout, activePane.id, splitContainer)
-
-    // 同步 tab.ptyId 为新激活窗格的 ptyId（外部兼容字段）
-    currentTab.ptyId = newPtyId
-
-    updatePaneLabels(currentTab.splitLayout)
-
-    // 完成后立即查不变量——若 ptyId / paneId 出现重复，会在 console 输出 layout dump，
-    // 便于追"Agent 在右下敲命令命中左上"这类路由错位 bug。
-    assertTabLayoutInvariant(currentTab)
-
+    const newPtyId = await connectPendingSplitPane(currentTab, newPane, resolved)
     log.info(
       `Split done direction=${direction} activePtyId=${activePane.ptyId} newPtyId=${newPtyId} ` +
       `panes=${getAllTerminalPanes(currentTab.splitLayout).map(p => p.ptyId).join(',')}`
     )
-    // 对外返回 ptyId：与 list / execute_command / focus / close 同一套编号
-    return newPtyId
+    // 窗格已经在，连不上也留着给用户看；Agent 仍拿失败，避免当成已连上接着下命令
+    return newPane.connectionError ? null : newPtyId
+  }
+
+  /**
+   * 在指定窗格的某一边新开一扇（本机或指定主机）。
+   */
+  async function splitAtEdge(
+    tabId: string,
+    anchorPaneId: string,
+    edge: PaneEdge,
+    target: SplitTarget
+  ): Promise<string | null> {
+    lastSplitError = null
+    const currentTab = tabs.value.find(t => t.id === tabId)
+    if (!currentTab) {
+      lastSplitError = `tab not found: ${tabId}`
+      log.warn(lastSplitError)
+      return null
+    }
+    if (currentTab.type === 'assistant') {
+      lastSplitError = 'assistant tab does not accept edge split'
+      return null
+    }
+    if (!currentTab.splitLayout) {
+      ensureRootSplitLayoutForTab(currentTab)
+    }
+    if (!currentTab.splitLayout) {
+      lastSplitError = 'tab has no splitLayout'
+      return null
+    }
+
+    let anchor = findPaneById(currentTab.splitLayout, anchorPaneId)
+    if (!anchor) {
+      anchor = getAllTerminalPanes(currentTab.splitLayout).find(p => p.ptyId === anchorPaneId) ?? null
+    }
+    if (!anchor || anchor.type !== 'terminal') {
+      lastSplitError = 'no terminal pane to split on'
+      return null
+    }
+
+    const resolved = resolveSplitTarget(target, anchor)
+    if (!resolved) {
+      lastSplitError = lastSplitError || 'failed to resolve split target'
+      return null
+    }
+    const newPane = placePendingSplitPane(currentTab, anchor, edge, resolved)
+    if (!newPane) {
+      lastSplitError = lastSplitError || 'failed to place new pane at edge'
+      return null
+    }
+
+    return connectPendingSplitPane(currentTab, newPane, resolved)
+  }
+
+  /**
+   * 把已有窗格拖到另一扇的边上。只在同一页里搬。
+   */
+  function movePaneInTab(
+    tabId: string,
+    sourcePaneId: string,
+    targetPaneId: string,
+    edge: PaneEdge
+  ): boolean {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (!tab?.splitLayout || tab.type === 'assistant') return false
+    if (sourcePaneId === targetPaneId) return false
+
+    const ok = movePaneToEdgeInTree(tab.splitLayout, sourcePaneId, targetPaneId, edge, uuidv4())
+    if (!ok) return false
+
+    updatePaneLabels(tab.splitLayout)
+    const moved = findPaneById(tab.splitLayout, sourcePaneId)
+      ?? getAllTerminalPanes(tab.splitLayout).find(p => p.id === sourcePaneId)
+    if (moved) {
+      setActivePaneInTab(tabId, moved.id)
+      if (moved.ptyId) tab.ptyId = moved.ptyId
+    }
+    assertTabLayoutInvariant(tab)
+    return true
   }
 
   /**
@@ -1973,13 +2057,96 @@ export const useTerminalStore = defineStore('terminal', () => {
     }
   }
 
+  type ResolvedSplitTarget = {
+    terminalType: 'local' | 'ssh'
+    sshSessionId?: string
+    sshConfig?: { host: string; port: number; username: string }
+    label?: string
+  }
+
+  /** 先把空窗格嵌进布局（正在连接），握手成功后再挂终端。 */
+  function placePendingSplitPane(
+    currentTab: TerminalTab,
+    anchor: SplitPane,
+    edge: PaneEdge,
+    resolved: ResolvedSplitTarget
+  ): SplitPane | null {
+    if (!currentTab.splitLayout) return null
+    const pendingPtyId = uuidv4()
+    const newPane: SplitPane = {
+      id: uuidv4(),
+      type: 'terminal',
+      ptyId: pendingPtyId,
+      terminalType: resolved.terminalType,
+      sshConfig: resolved.sshConfig,
+      sshSessionId: resolved.sshSessionId,
+      label: resolved.label || i18n.global.t('terminal.split.label.new'),
+      isActive: true,
+      size: 50,
+      isConnecting: true
+    }
+    if (!splitLeafAtEdge(currentTab.splitLayout, anchor.id, newPane, edge, uuidv4())) {
+      return null
+    }
+    currentTab.ptyId = pendingPtyId
+    updatePaneLabels(currentTab.splitLayout)
+    setActivePaneInTab(currentTab.id, newPane.id)
+    assertTabLayoutInvariant(currentTab)
+    return newPane
+  }
+
+  /**
+   * 对已插入的窗格做握手。失败写在这一扇上并仍返回占位 id，
+   * 好让拖过来的人看见窗格、不要再弹一层超时。
+   */
+  async function connectPendingSplitPane(
+    tab: TerminalTab,
+    pane: SplitPane,
+    resolved: ResolvedSplitTarget
+  ): Promise<string | null> {
+    const attemptId = resolved.terminalType === 'ssh' ? uuidv4() : undefined
+    if (attemptId) pane.connectAttemptId = attemptId
+    const connectedId = await createTerminalInstanceForTarget(resolved, {
+      reuseId: pane.ptyId,
+      attemptId
+    })
+    const stillAttached = tab.splitLayout
+      && getAllTerminalPanes(tab.splitLayout).includes(pane)
+    if (!stillAttached) {
+      if (connectedId) {
+        if (resolved.terminalType === 'local') {
+          window.electronAPI.pty.dispose(connectedId).catch(() => {})
+        } else {
+          window.electronAPI.ssh.disconnect(connectedId).catch(() => {})
+        }
+      }
+      return null
+    }
+    pane.connectAttemptId = undefined
+    pane.isConnecting = false
+    if (!connectedId) {
+      pane.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
+      return pane.ptyId ?? null
+    }
+    if (pane.ptyId !== connectedId) pane.ptyId = connectedId
+    pane.connectionError = undefined
+    if (pane.isActive) {
+      tab.ptyId = pane.ptyId
+      tab.isConnected = true
+    }
+    return pane.ptyId ?? connectedId
+  }
+
   /**
    * 按已解析的 target 创建一个新终端实例（PTY 或 SSH）
    */
-  async function createTerminalInstanceForTarget(resolved: {
-    terminalType: 'local' | 'ssh'
-    sshSessionId?: string
-  }): Promise<string | null> {
+  async function createTerminalInstanceForTarget(
+    resolved: {
+      terminalType: 'local' | 'ssh'
+      sshSessionId?: string
+    },
+    options?: { reuseId?: string; attemptId?: string }
+  ): Promise<string | null> {
     const configStore = useConfigStore()
     try {
       if (resolved.terminalType === 'local') {
@@ -2016,10 +2183,13 @@ export const useTerminalStore = defineStore('terminal', () => {
         encoding: session.encoding || 'utf-8',
         cols: 80,
         rows: 24
+      }, {
+        reuseId: options?.reuseId,
+        attemptId: options?.attemptId
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      lastSplitError = `failed to create terminal instance: ${msg}`
+      lastSplitError = msg
       log.error('Failed to create terminal instance:', error)
       return null
     }
@@ -2038,6 +2208,27 @@ export const useTerminalStore = defineStore('terminal', () => {
    * 也会因此跳过最外层的"左侧"前缀，标签直接呈现为"上方"/"下方"，避免
    * 出现误导性的"左侧-上方"。
    */
+  function panePositionLabel(
+    direction: 'horizontal' | 'vertical' | undefined,
+    index: number,
+    count: number,
+    t: (key: string, params?: Record<string, unknown>) => string
+  ): string {
+    const horizontal = direction === 'horizontal'
+    if (count === 2) {
+      if (horizontal) return index === 0 ? t('terminal.split.position.left') : t('terminal.split.position.right')
+      return index === 0 ? t('terminal.split.position.top') : t('terminal.split.position.bottom')
+    }
+    if (count === 3) {
+      if (index === 1) return t('terminal.split.position.middle')
+      if (horizontal) return index === 0 ? t('terminal.split.position.left') : t('terminal.split.position.right')
+      return index === 0 ? t('terminal.split.position.top') : t('terminal.split.position.bottom')
+    }
+    return horizontal
+      ? t('terminal.split.position.col', { n: index + 1 })
+      : t('terminal.split.position.row', { n: index + 1 })
+  }
+
   function updatePaneLabels(layout: SplitPane, path: string = ''): void {
     const t = i18n.global.t
     if (layout.type === 'terminal') {
@@ -2052,10 +2243,9 @@ export const useTerminalStore = defineStore('terminal', () => {
       return
     }
 
+    const count = layout.children.length
     layout.children.forEach((child, index) => {
-      const position = layout.direction === 'horizontal'
-        ? (index === 0 ? t('terminal.split.position.left') : t('terminal.split.position.right'))
-        : (index === 0 ? t('terminal.split.position.top') : t('terminal.split.position.bottom'))
+      const position = panePositionLabel(layout.direction, index, count, t)
       const newPath = path ? `${path}-${position}` : position
       updatePaneLabels(child, newPath)
     })
@@ -2086,6 +2276,10 @@ export const useTerminalStore = defineStore('terminal', () => {
 
     // 连接收尾不阻塞关窗：主进程若在 SSH 优雅断开里卡住，这里一 await，
     // 助手的 manage_pane 就回不来，窗口也会假死。先拆布局，连路后台收。
+    if (pane.connectAttemptId) {
+      cancelSshHandshake(pane.connectAttemptId)
+      pane.connectAttemptId = undefined
+    }
     if (pane.ptyId) {
       const disposePtyId = pane.ptyId
       cancelPaneReconnectHandshake(disposePtyId)
@@ -3759,6 +3953,14 @@ export const useTerminalStore = defineStore('terminal', () => {
     writeToPty,
     resizePty,
     splitTerminal,
+    splitAtEdge,
+    movePaneInTab,
+    layoutDrag,
+    beginLayoutDrag,
+    endLayoutDrag,
+    sshSplitAtEdgeRequest,
+    requestSshSplitAtEdge,
+    consumeSshSplitAtEdgeRequest,
     openTerminalOnTab,
     tabHostsTerminal,
     getLastSplitError,

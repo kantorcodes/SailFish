@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X } from 'lucide-vue-next'
-import { useTerminalStore, type SplitPane } from '../stores/terminal'
-import { getAllTerminalPanes } from '../stores/split-pane-tree'
+import { AlertCircle, X } from 'lucide-vue-next'
+import { useTerminalStore, type SplitPane, type LayoutDrag } from '../stores/terminal'
+import { getAllTerminalPanes, type PaneEdge } from '../stores/split-pane-tree'
 import { PANE_SLOT_REGISTRY_KEY, type PaneSlotRegistry } from './pane-slot-registry'
 
 const { t } = useI18n()
@@ -13,6 +13,8 @@ const props = defineProps<{
   tabId: string
   layout: SplitPane
   isActive: boolean
+  /** 终端页才开四边落点；助手入座的终端不要 */
+  enableLayoutDrag?: boolean
 }>()
 
 // SplitPaneView 内部不再渲染 Terminal：
@@ -59,7 +61,24 @@ const isPaneActive = computed(() => isTerminal.value && !isSinglePane.value && (
 
 // 窗格顶部的连接名标签：只在分屏时出现——单窗格没有第二扇要区分，标签只是碍事
 const connectionName = computed(() => terminalStore.getPaneConnectionName(props.layout))
-const showConnectionLabel = computed(() => isTerminal.value && Boolean(props.layout.ptyId) && !isSinglePane.value)
+const showConnectionLabel = computed(() =>
+  isTerminal.value
+  && !isSinglePane.value
+  && Boolean(props.layout.ptyId || props.layout.isConnecting || props.layout.connectionError)
+)
+const paneConnecting = computed(() =>
+  Boolean(props.layout.isConnecting || terminalStore.isPtyReconnecting(props.layout.ptyId))
+)
+const paneReadyForTerminal = computed(() =>
+  Boolean(props.layout.ptyId) && !paneConnecting.value && !props.layout.connectionError
+)
+
+async function retryPaneConnect() {
+  if (!props.layout.ptyId) return
+  props.layout.connectionError = undefined
+  props.layout.isConnecting = true
+  await terminalStore.reconnectSsh(props.tabId, props.layout.ptyId)
+}
 
 // ==================== 容器引用（用于拖拽时计算容器尺寸）====================
 
@@ -165,6 +184,123 @@ onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
 })
+
+// ==================== 四边落点 ====================
+
+const dropEdge = ref<PaneEdge | null>(null)
+
+const canShowDropZones = computed(() => {
+  if (!props.enableLayoutDrag || !isTerminal.value) return false
+  const drag = terminalStore.layoutDrag
+  if (!drag) return false
+  if (drag.kind === 'pane') {
+    if (drag.tabId !== props.tabId) return false
+    if (drag.paneId === props.layout.id) return false
+  }
+  return true
+})
+
+function hitTestEdge(e: DragEvent, el: HTMLElement): PaneEdge | null {
+  const rect = el.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  const band = Math.max(24, Math.min(rect.width, rect.height) * 0.28)
+  const dl = x
+  const dr = rect.width - x
+  const dt = y
+  const db = rect.height - y
+  const min = Math.min(dl, dr, dt, db)
+  if (min > band) return null
+  if (min === dl) return 'left'
+  if (min === dr) return 'right'
+  if (min === dt) return 'top'
+  return 'bottom'
+}
+
+function handleLayoutDragOver(e: DragEvent) {
+  if (!canShowDropZones.value || !containerRef.value) return
+  const edge = hitTestEdge(e, containerRef.value)
+  dropEdge.value = edge
+  if (!edge) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = terminalStore.layoutDrag?.kind === 'pane' ? 'move' : 'copy'
+  }
+}
+
+function handleLayoutDragLeave(e: DragEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && containerRef.value?.contains(next)) return
+  dropEdge.value = null
+}
+
+function readDropDrag(e: DragEvent): LayoutDrag | null {
+  if (terminalStore.layoutDrag) return terminalStore.layoutDrag
+  const dt = e.dataTransfer
+  if (!dt) return null
+  const types = [...(dt.types || [])]
+  if (types.includes('application/x-session')) {
+    const sessionId = dt.getData('text/plain')
+    if (sessionId) return { kind: 'ssh-session', sessionId }
+  }
+  const text = dt.getData('text/plain')
+  if (text === 'new-local') return { kind: 'new-local' }
+  if (text) return { kind: 'pane', tabId: props.tabId, paneId: text }
+  return null
+}
+
+async function handleLayoutDrop(e: DragEvent) {
+  const resolvedEdge = dropEdge.value
+    ?? (containerRef.value ? hitTestEdge(e, containerRef.value) : null)
+  dropEdge.value = null
+  if (!resolvedEdge) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const drag = readDropDrag(e)
+  terminalStore.endLayoutDrag()
+  if (!drag) return
+
+  if (drag.kind === 'pane') {
+    terminalStore.movePaneInTab(props.tabId, drag.paneId, props.layout.id, resolvedEdge)
+    return
+  }
+  if (drag.kind === 'new-local') {
+    const opened = await terminalStore.splitAtEdge(props.tabId, props.layout.id, resolvedEdge, { kind: 'local' })
+    if (!opened) {
+      const err = terminalStore.getLastSplitError()
+      if (err) console.warn('[SplitPaneView] splitAtEdge local failed:', err)
+    }
+    return
+  }
+  if (drag.kind === 'ssh-session') {
+    terminalStore.requestSshSplitAtEdge({
+      sessionId: drag.sessionId,
+      tabId: props.tabId,
+      paneId: props.layout.id,
+      edge: resolvedEdge
+    })
+  }
+}
+
+function handlePaneDragStart(e: DragEvent) {
+  if (!props.enableLayoutDrag || isSinglePane.value || !props.layout.id) return
+  terminalStore.beginLayoutDrag({
+    kind: 'pane',
+    tabId: props.tabId,
+    paneId: props.layout.id
+  })
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', props.layout.id)
+  }
+}
+
+function handlePaneDragEnd() {
+  dropEdge.value = null
+  setTimeout(() => terminalStore.endLayoutDrag(), 0)
+}
 </script>
 
 <template>
@@ -174,16 +310,35 @@ onUnmounted(() => {
     :class="[direction, { terminal: isTerminal, 'pane-active': isPaneActive }]"
     :style="paneStyle"
     @click="handlePaneClick"
+    @dragover="handleLayoutDragOver"
+    @dragleave="handleLayoutDragLeave"
+    @drop="handleLayoutDrop"
   >
     <!-- 终端窗格：仅渲染占位 div，Terminal 由 TerminalTabView 通过 Teleport 投入 -->
     <template v-if="isTerminal">
       <div
         v-if="showConnectionLabel"
         class="pane-connection-label"
-        :title="connectionName"
+        :class="{ 'is-handle': enableLayoutDrag }"
+        :title="enableLayoutDrag ? t('terminal.split.dragToRearrange') : connectionName"
+        :draggable="enableLayoutDrag ? 'true' : 'false'"
+        @dragstart.stop="handlePaneDragStart"
+        @dragend="handlePaneDragEnd"
       >{{ connectionName }}</div>
+      <div
+        v-if="canShowDropZones"
+        class="pane-drop-catcher"
+        @dragover="handleLayoutDragOver"
+        @dragleave="handleLayoutDragLeave"
+        @drop="handleLayoutDrop"
+      />
+      <div
+        v-if="canShowDropZones && dropEdge"
+        class="pane-drop-edge"
+        :class="dropEdge"
+      />
       <button
-        v-if="layout.ptyId && !isSinglePane"
+        v-if="(layout.ptyId || paneConnecting || layout.connectionError) && !isSinglePane"
         class="pane-close-btn"
         :title="t('common.close')"
         @click="handleClosePane"
@@ -191,7 +346,31 @@ onUnmounted(() => {
         <X :size="14" />
       </button>
       <div
-        v-if="layout.ptyId"
+        v-if="paneConnecting"
+        class="pane-status pane-connecting"
+      >
+        <div class="loading-spinner"></div>
+        <span>{{ t('terminal.connecting') }}</span>
+        <button
+          class="btn btn-sm"
+          @click="handleClosePane"
+        >{{ t('terminal.cancelConnect') }}</button>
+      </div>
+      <div
+        v-else-if="layout.connectionError"
+        class="pane-status pane-error"
+      >
+        <AlertCircle :size="32" />
+        <span class="error-title">{{ t('terminal.connectionFailed') }}</span>
+        <span class="error-detail">{{ layout.connectionError }}</span>
+        <button
+          v-if="layout.terminalType === 'ssh' && layout.ptyId"
+          class="btn btn-sm"
+          @click.stop="retryPaneConnect"
+        >{{ t('terminal.reconnect') }}</button>
+      </div>
+      <div
+        v-else-if="paneReadyForTerminal"
         ref="slotElRef"
         class="pane-slot"
       ></div>
@@ -204,6 +383,7 @@ onUnmounted(() => {
           :tab-id="tabId"
           :layout="child"
           :is-active="isActive"
+          :enable-layout-drag="enableLayoutDrag"
         />
         <div
           v-if="index < children.length - 1"
@@ -282,6 +462,57 @@ onUnmounted(() => {
   z-index: 6;
 }
 
+.pane-connection-label.is-handle {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.pane-connection-label.is-handle:active {
+  cursor: grabbing;
+}
+
+.pane-drop-catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+}
+
+.pane-drop-edge {
+  position: absolute;
+  background: var(--accent-primary, #4299e1);
+  opacity: 0.32;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.pane-drop-edge.left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 28%;
+}
+
+.pane-drop-edge.right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 28%;
+}
+
+.pane-drop-edge.top {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 28%;
+}
+
+.pane-drop-edge.bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28%;
+}
+
 .split-pane.terminal:hover .pane-connection-label {
   opacity: 1;
   color: rgba(255, 255, 255, 0.95);
@@ -338,6 +569,56 @@ onUnmounted(() => {
 .split-handle:hover,
 .split-handle.resizing {
   background: var(--accent-primary, #4299e1);
+}
+
+.pane-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  color: var(--text-muted);
+  z-index: 3;
+}
+
+.pane-status .loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--bg-surface);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: pane-spin 1s linear infinite;
+}
+
+@keyframes pane-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pane-error svg {
+  color: var(--accent-error);
+  opacity: 0.8;
+}
+
+.pane-error .error-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.pane-error .error-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  text-align: center;
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+  word-break: break-word;
 }
 
 </style>

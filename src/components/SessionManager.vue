@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Monitor, FolderPlus, Download, FileText, Folder, ListFilter, FileEdit, AlignLeft, AlignRight, Clock, Terminal, ChevronDown, ExternalLink, Settings, Plug, Pencil, Trash2, Columns2, Rows2 } from 'lucide-vue-next'
 import { useConfigStore, type SshSession, type SessionGroup, type JumpHostConfig, type SessionSortBy } from '../stores/config'
-import { useTerminalStore } from '../stores/terminal'
+import { useTerminalStore, type PaneEdge } from '../stores/terminal'
 import { v4 as uuidv4 } from 'uuid'
 import SessionEditDialog from './SessionEditDialog.vue'
 import GroupEditDialog from './GroupEditDialog.vue'
@@ -34,8 +34,9 @@ const credentialSession = ref<SshSession | null>(null)
 const searchText = ref('')
 const collapsedGroups = ref<Set<string>>(new Set())
 
-type OpenIntent = 'new-tab' | 'split-h' | 'split-v'
+type OpenIntent = 'new-tab' | 'split-h' | 'split-v' | 'split-edge'
 const pendingOpenIntent = ref<OpenIntent>('new-tab')
+const pendingSplitEdge = ref<{ tabId: string; paneId: string; edge: PaneEdge } | null>(null)
 const ctxMenu = ref<{ show: boolean; x: number; y: number; session: SshSession | null }>({
   show: false, x: 0, y: 0, session: null,
 })
@@ -226,7 +227,10 @@ const executeOpen = async (
     await doConnect(session, overrideCredentials)
     return
   }
-  const tab = currentSessionTab.value
+  const edgeInfo = intent === 'split-edge' ? pendingSplitEdge.value : null
+  const tab = edgeInfo
+    ? terminalStore.tabs.find(t => t.id === edgeInfo.tabId)
+    : currentSessionTab.value
   if (!tab) {
     await doConnect(session, overrideCredentials)
     return
@@ -240,9 +244,16 @@ const executeOpen = async (
   }
   const target = { kind: 'ssh' as const, sessionId: session.id }
   try {
-    const opened = terminalStore.tabHostsTerminal(tab)
-      ? await terminalStore.splitTerminal(intent === 'split-h' ? 'horizontal' : 'vertical', target, tab.id)
-      : await terminalStore.openTerminalOnTab(tab.id, target)
+    let opened: string | null = null
+    if (intent === 'split-edge' && edgeInfo) {
+      opened = terminalStore.tabHostsTerminal(tab)
+        ? await terminalStore.splitAtEdge(edgeInfo.tabId, edgeInfo.paneId, edgeInfo.edge, target)
+        : await terminalStore.openTerminalOnTab(tab.id, target)
+    } else {
+      opened = terminalStore.tabHostsTerminal(tab)
+        ? await terminalStore.splitTerminal(intent === 'split-h' ? 'horizontal' : 'vertical', target, tab.id)
+        : await terminalStore.openTerminalOnTab(tab.id, target)
+    }
     if (!opened) {
       const err = terminalStore.getLastSplitError()
       await showAlert(t('common.error'), err || t('session.splitNeedSession'))
@@ -254,6 +265,18 @@ const executeOpen = async (
     }
   }
 }
+
+watch(
+  () => terminalStore.sshSplitAtEdgeRequest,
+  (req) => {
+    if (!req) return
+    const session = configStore.sshSessions.find(s => s.id === req.sessionId)
+    terminalStore.consumeSshSplitAtEdgeRequest()
+    if (!session) return
+    pendingSplitEdge.value = { tabId: req.tabId, paneId: req.paneId, edge: req.edge }
+    void openHost(session, 'split-edge')
+  }
+)
 
 const handleCredentialConnect = async (credentials: { username: string; password: string; save: boolean }) => {
   const session = credentialSession.value

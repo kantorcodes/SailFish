@@ -15,7 +15,12 @@ import {
   findPaneById,
   getAllTerminalPanes,
   liftChildIntoParent,
-  removePaneFromLayout
+  removePaneFromLayout,
+  splitLeafAtEdge,
+  movePaneToEdge,
+  findPaneByPtyId,
+  edgeToSplit,
+  cloneTerminalLeaf
 } from '../split-pane-tree'
 import type { SplitPane } from '../terminal'
 
@@ -232,6 +237,139 @@ describe('split-pane-tree', () => {
     it('returns false for non-existent pane', () => {
       const layout = makeSplit('root', 'horizontal', [makeTerminalPane('a', 'pty-a')])
       expect(removePaneFromLayout(layout, 'nope')).toBe(false)
+    })
+  })
+
+  describe('edgeToSplit', () => {
+    it('maps edges to direction and place', () => {
+      expect(edgeToSplit('left')).toEqual({ direction: 'horizontal', place: 'before' })
+      expect(edgeToSplit('right')).toEqual({ direction: 'horizontal', place: 'after' })
+      expect(edgeToSplit('top')).toEqual({ direction: 'vertical', place: 'before' })
+      expect(edgeToSplit('bottom')).toEqual({ direction: 'vertical', place: 'after' })
+    })
+  })
+
+  describe('splitLeafAtEdge', () => {
+    it('inserts into the same row and equalizes instead of nesting halves', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeTerminalPane('b', 'pty-b')
+      ])
+      const incoming = makeTerminalPane('c', 'pty-c')
+      const ok = splitLeafAtEdge(layout, 'b', incoming, 'left', 'new-split')
+      expect(ok).toBe(true)
+      expect(layout.type).toBe('split')
+      expect(layout.direction).toBe('horizontal')
+      expect(layout.children?.map(c => c.id)).toEqual(['a', 'c', 'b'])
+      expect(layout.children?.map(c => c.size)).toEqual([
+        100 / 3,
+        100 / 3,
+        100 / 3
+      ])
+    })
+
+    it('nests only when the edge is perpendicular', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeTerminalPane('b', 'pty-b')
+      ])
+      const incoming = makeTerminalPane('c', 'pty-c')
+      const ok = splitLeafAtEdge(layout, 'b', incoming, 'top', 'new-split')
+      expect(ok).toBe(true)
+      expect(layout.children?.map(c => c.id)).toEqual(['a', 'new-split'])
+      const wrapped = layout.children![1]
+      expect(wrapped.type).toBe('split')
+      expect(wrapped.direction).toBe('vertical')
+      expect(wrapped.children?.map(c => c.id)).toEqual(['c', 'b'])
+      expect(wrapped.size).toBe(50)
+    })
+
+    it('adopts a single-child wrapper and equalizes the first pair', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a', { size: 100 })
+      ])
+      const incoming = makeTerminalPane('b', 'pty-b')
+      expect(splitLeafAtEdge(layout, 'a', incoming, 'bottom', 'unused')).toBe(true)
+      expect(layout.direction).toBe('vertical')
+      expect(layout.children?.map(c => c.id)).toEqual(['a', 'b'])
+      expect(layout.children?.map(c => c.size)).toEqual([50, 50])
+    })
+
+    it('rewrites a lifted root leaf into a split', () => {
+      const layout = makeTerminalPane('only', 'pty-only')
+      const incoming = makeTerminalPane('n', 'pty-n')
+      const ok = splitLeafAtEdge(layout, 'only', incoming, 'bottom', 'unused')
+      expect(ok).toBe(true)
+      expect(layout.type).toBe('split')
+      expect(layout.direction).toBe('vertical')
+      expect(layout.ptyId).toBeUndefined()
+      expect(layout.children?.map(c => c.ptyId)).toEqual(['pty-only', 'pty-n'])
+      expect(layout.children?.[0].id).toBe('only')
+    })
+  })
+
+  describe('movePaneToEdge', () => {
+    it('restyles a two-child parent instead of nesting', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeTerminalPane('b', 'pty-b')
+      ])
+      const ok = movePaneToEdge(layout, 'a', 'b', 'bottom', 'unused')
+      expect(ok).toBe(true)
+      expect(layout.direction).toBe('vertical')
+      expect(layout.children?.map(c => c.id)).toEqual(['b', 'a'])
+    })
+
+    it('is a no-op when the pane is already on that edge', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeTerminalPane('b', 'pty-b')
+      ])
+      expect(movePaneToEdge(layout, 'a', 'b', 'left', 'unused')).toBe(false)
+      expect(layout.children?.map(c => c.id)).toEqual(['a', 'b'])
+    })
+
+    it('moves a nested pane onto a cousin and finds the target by ptyId after lift', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeSplit('inner', 'vertical', [
+          makeTerminalPane('b', 'pty-b'),
+          makeTerminalPane('c', 'pty-c')
+        ])
+      ])
+      const ok = movePaneToEdge(layout, 'c', 'a', 'right', 'new-split')
+      expect(ok).toBe(true)
+      // 去掉 c 后 inner 提升成 b（id 仍是 inner）；同一方向加在 a 右侧 → 三扇均分
+      expect(findPaneByPtyId(layout, 'pty-c')?.id).toBe('c')
+      expect(layout.children?.map(c => c.ptyId)).toEqual(['pty-a', 'pty-c', 'pty-b'])
+      expect(layout.children?.map(c => c.size)).toEqual([
+        100 / 3,
+        100 / 3,
+        100 / 3
+      ])
+    })
+
+    it('refuses to move a pane onto itself', () => {
+      const layout = makeSplit('root', 'horizontal', [
+        makeTerminalPane('a', 'pty-a'),
+        makeTerminalPane('b', 'pty-b')
+      ])
+      expect(movePaneToEdge(layout, 'a', 'a', 'right', 'unused')).toBe(false)
+    })
+  })
+
+  describe('cloneTerminalLeaf', () => {
+    it('copies connecting and error fields so a move keeps the handshake state', () => {
+      const pane = makeTerminalPane('a', 'pty-a', {
+        isConnecting: true,
+        connectionError: 'timeout',
+        connectAttemptId: 'attempt-1'
+      })
+      const cloned = cloneTerminalLeaf(pane)
+      expect(cloned.isConnecting).toBe(true)
+      expect(cloned.connectionError).toBe('timeout')
+      expect(cloned.connectAttemptId).toBe('attempt-1')
+      expect(cloned).not.toBe(pane)
     })
   })
 })

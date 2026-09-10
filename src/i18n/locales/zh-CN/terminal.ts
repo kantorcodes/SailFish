@@ -130,6 +130,7 @@ export default {
     todos: '待办',
     todosOverdue: '{n} 项待办已逾期',
     newTab: '新建终端',
+    newTabDragHint: '点一下新开标签；拖到窗口边上可并排新开',
     closeTab: '关闭标签',
     closeOtherTabs: '关闭其他标签页',
     closeTabsToRight: '关闭右侧标签页',
@@ -211,8 +212,12 @@ export default {
         left: '左侧',
         right: '右侧',
         top: '上方',
-        bottom: '下方'
+        bottom: '下方',
+        middle: '中间',
+        col: '第{n}列',
+        row: '第{n}行'
       },
+      dragToRearrange: '拖到另一扇边上可换位置',
       label: {
         main: '主窗格',
         new: '新窗格'

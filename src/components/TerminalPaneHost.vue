@@ -6,7 +6,7 @@
 import { shallowRef, triggerRef, computed, watch, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertCircle, X } from 'lucide-vue-next'
-import { useTerminalStore } from '../stores/terminal'
+import { useTerminalStore, isLocalOrSshTab } from '../stores/terminal'
 import type { SplitPane, TerminalTab } from '../stores/terminal'
 import { getAllTerminalPanes } from '../stores/split-pane-tree'
 import Terminal from './Terminal.vue'
@@ -36,7 +36,9 @@ const liveTab = computed<TerminalTab>(
 
 const terminalPanes = computed<SplitPane[]>(() => {
   if (!liveTab.value.splitLayout) return []
-  return getAllTerminalPanes(liveTab.value.splitLayout).filter(p => Boolean(p.ptyId))
+  return getAllTerminalPanes(liveTab.value.splitLayout).filter(p =>
+    Boolean(p.ptyId) && !p.isConnecting && !p.connectionError
+  )
 })
 
 const paneSlotElements = shallowRef<Record<string, HTMLElement>>({})
@@ -105,6 +107,7 @@ watch(terminalPanes, (panes) => {
       :tab-id="liveTab.id"
       :layout="liveTab.splitLayout"
       :is-active="isActive"
+      :enable-layout-drag="isLocalOrSshTab(liveTab)"
     />
 
     <div v-else-if="liveTab.isLoading" class="terminal-loading">

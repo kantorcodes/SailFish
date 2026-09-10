@@ -130,6 +130,7 @@ export default {
     todos: 'Todos',
     todosOverdue: '{n} overdue todos',
     newTab: 'New Terminal',
+    newTabDragHint: 'Click for a new tab; drag onto a pane edge to split',
     closeTab: 'Close Tab',
     closeOtherTabs: 'Close Other Tabs',
     closeTabsToRight: 'Close Tabs to Right',
@@ -211,8 +212,12 @@ export default {
         left: 'Left',
         right: 'Right',
         top: 'Top',
-        bottom: 'Bottom'
+        bottom: 'Bottom',
+        middle: 'Middle',
+        col: 'Col {n}',
+        row: 'Row {n}'
       },
+      dragToRearrange: 'Drag onto another pane edge to rearrange',
       label: {
         main: 'Main',
         new: 'New'

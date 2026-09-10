@@ -175,10 +175,46 @@ onUnmounted(() => {
   tabBarResizeObserver = null
 })
 
+const plusDragOccurred = ref(false)
+
 const handleNewTab = (shell?: string) => {
   if (!canCreateLocal) return
   terminalStore.createTab('local', undefined, shell)
   showNewMenu.value = false
+}
+
+const canDragPlusToSplit = computed(() => props.variant === 'terminal' && canCreateLocal)
+
+function handlePlusClick() {
+  if (plusDragOccurred.value) return
+  if (props.variant === 'terminal') {
+    if (canCreateLocal) handleNewTab()
+    else handleOpenSsh()
+    return
+  }
+  if (canCreateAssistant) handleNewAssistant()
+  else if (canCreateLocal) handleNewTab()
+  else handleOpenSsh()
+}
+
+function handlePlusDragStart(event: DragEvent) {
+  if (!canDragPlusToSplit.value) {
+    event.preventDefault()
+    return
+  }
+  plusDragOccurred.value = true
+  terminalStore.beginLayoutDrag({ kind: 'new-local' })
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData('text/plain', 'new-local')
+  }
+}
+
+function handlePlusDragEnd() {
+  setTimeout(() => {
+    terminalStore.endLayoutDrag()
+    plusDragOccurred.value = false
+  }, 0)
 }
 
 const handleNewAssistant = () => {
@@ -503,11 +539,12 @@ const tasksAreaAttentionTooltip = computed(() => {
     <div v-if="(props.variant === 'terminal' ? (canCreateLocal || canCreateSsh) : (canCreateAssistant || canCreateLocal || canCreateSsh))" class="new-tab-wrapper">
       <button
         class="btn-new-tab"
-        @click="props.variant === 'terminal'
-          ? (canCreateLocal ? handleNewTab() : handleOpenSsh())
-          : (canCreateAssistant ? handleNewAssistant() : canCreateLocal ? handleNewTab() : handleOpenSsh())"
+        :draggable="canDragPlusToSplit"
+        @click="handlePlusClick"
+        @dragstart="handlePlusDragStart"
+        @dragend="handlePlusDragEnd"
         :title="props.variant === 'terminal'
-          ? (canCreateLocal ? t('tabs.newTab') : t('tabs.sshConnect'))
+          ? (canCreateLocal ? t('tabs.newTabDragHint') : t('tabs.sshConnect'))
           : (canCreateAssistant ? t('tabs.assistant', 'AI 助手') : canCreateLocal ? t('tabs.newTab') : t('tabs.sshConnect'))"
       >
         <Plus :size="14" />

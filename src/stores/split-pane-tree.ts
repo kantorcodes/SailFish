@@ -114,3 +114,196 @@ export function removePaneFromLayout(layout: SplitPane, paneId: string): boolean
   }
   return false
 }
+
+/** 松手落在窗格的哪一条边 */
+export type PaneEdge = 'left' | 'right' | 'top' | 'bottom'
+
+export function edgeToSplit(edge: PaneEdge): {
+  direction: 'horizontal' | 'vertical'
+  place: 'before' | 'after'
+} {
+  if (edge === 'left') return { direction: 'horizontal', place: 'before' }
+  if (edge === 'right') return { direction: 'horizontal', place: 'after' }
+  if (edge === 'top') return { direction: 'vertical', place: 'before' }
+  return { direction: 'vertical', place: 'after' }
+}
+
+export function findParentPane(layout: SplitPane, childId: string): SplitPane | null {
+  for (const child of layout.children || []) {
+    if (child.id === childId) return layout
+    const found = findParentPane(child, childId)
+    if (found) return found
+  }
+  return null
+}
+
+export function findPaneByPtyId(layout: SplitPane, ptyId: string): SplitPane | null {
+  return getAllTerminalPanes(layout).find(p => p.ptyId === ptyId) ?? null
+}
+
+export function cloneTerminalLeaf(pane: SplitPane): SplitPane {
+  return {
+    id: pane.id,
+    type: 'terminal',
+    ptyId: pane.ptyId,
+    terminalType: pane.terminalType,
+    sshConfig: pane.sshConfig ? { ...pane.sshConfig } : undefined,
+    sshSessionId: pane.sshSessionId,
+    label: pane.label,
+    isActive: pane.isActive,
+    size: pane.size,
+    isConnecting: pane.isConnecting,
+    connectionError: pane.connectionError,
+    connectAttemptId: pane.connectAttemptId
+  }
+}
+
+function clearTerminalFields(node: SplitPane): void {
+  delete node.ptyId
+  delete node.terminalType
+  delete node.sshConfig
+  delete node.sshSessionId
+  delete node.label
+  delete node.isActive
+  delete node.isConnecting
+  delete node.connectionError
+  delete node.connectAttemptId
+}
+
+export function equalizeSiblingSizes(children: SplitPane[]): void {
+  if (children.length === 0) return
+  const size = 100 / children.length
+  for (const child of children) child.size = size
+}
+
+function nestLeafAtEdge(
+  layout: SplitPane,
+  target: SplitPane,
+  incoming: SplitPane,
+  edge: PaneEdge,
+  newSplitId: string
+): boolean {
+  const { direction, place } = edgeToSplit(edge)
+  const originalChild = cloneTerminalLeaf(target)
+  originalChild.isActive = false
+  incoming.isActive = true
+  const children = place === 'before' ? [incoming, originalChild] : [originalChild, incoming]
+  equalizeSiblingSizes(children)
+
+  if (layout.id === target.id) {
+    clearTerminalFields(layout)
+    layout.type = 'split'
+    layout.direction = direction
+    layout.children = children
+    return true
+  }
+
+  const splitContainer: SplitPane = {
+    id: newSplitId,
+    type: 'split',
+    direction,
+    size: target.size,
+    children
+  }
+  return replacePaneInLayout(layout, target.id, splitContainer)
+}
+
+/**
+ * 把 incoming 叶节点接到 target 叶的指定边。
+ * 同一方向（或这一排还只有一扇）就加进这一排并均分，不对半嵌套。
+ * 换方向才在那一格里切开。target 若已是整棵树的根，就地改成切开容器。
+ */
+export function splitLeafAtEdge(
+  layout: SplitPane,
+  targetPaneId: string,
+  incoming: SplitPane,
+  edge: PaneEdge,
+  newSplitId: string
+): boolean {
+  const target = findPaneById(layout, targetPaneId)
+  if (!target || target.type !== 'terminal') return false
+  if (incoming.id === target.id) return false
+
+  const { direction, place } = edgeToSplit(edge)
+  incoming.isActive = true
+  target.isActive = false
+
+  const parent = findParentPane(layout, target.id)
+  if (parent && parent.children && (parent.direction === direction || parent.children.length === 1)) {
+    parent.direction = direction
+    const idx = parent.children.findIndex(c => c.id === target.id)
+    if (idx < 0) return false
+    parent.children.splice(place === 'before' ? idx : idx + 1, 0, incoming)
+    equalizeSiblingSizes(parent.children)
+    return true
+  }
+
+  return nestLeafAtEdge(layout, target, incoming, edge, newSplitId)
+}
+
+function isAlreadyAtEdge(
+  parent: SplitPane,
+  sourceId: string,
+  targetId: string,
+  edge: PaneEdge
+): boolean {
+  const { direction, place } = edgeToSplit(edge)
+  if (parent.direction !== direction || !parent.children) return false
+  const si = parent.children.findIndex(c => c.id === sourceId)
+  const ti = parent.children.findIndex(c => c.id === targetId)
+  if (si < 0 || ti < 0) return false
+  return place === 'before' ? si === ti - 1 : si === ti + 1
+}
+
+/**
+ * 把已有叶节点搬到另一叶的边上。
+ * 搬完后用 ptyId 再找目标——压缩层级可能改掉目标节点 id。
+ */
+export function movePaneToEdge(
+  layout: SplitPane,
+  sourcePaneId: string,
+  targetPaneId: string,
+  edge: PaneEdge,
+  newSplitId: string
+): boolean {
+  if (sourcePaneId === targetPaneId) return false
+  const source = findPaneById(layout, sourcePaneId)
+  const target = findPaneById(layout, targetPaneId)
+  if (!source || !target || source.type !== 'terminal' || target.type !== 'terminal') return false
+
+  const sourceParent = findParentPane(layout, source.id)
+  const targetParent = findParentPane(layout, target.id)
+  if (
+    sourceParent
+    && sourceParent === targetParent
+    && isAlreadyAtEdge(sourceParent, source.id, target.id, edge)
+  ) {
+    return false
+  }
+
+  if (
+    sourceParent
+    && sourceParent === targetParent
+    && sourceParent.children?.length === 2
+  ) {
+    const { direction, place } = edgeToSplit(edge)
+    const other = sourceParent.children.find(c => c.id !== source.id)
+    if (!other) return false
+    sourceParent.direction = direction
+    sourceParent.children = place === 'before' ? [source, other] : [other, source]
+    equalizeSiblingSizes(sourceParent.children)
+    return true
+  }
+
+  const incoming = cloneTerminalLeaf(source)
+  const targetPtyId = target.ptyId
+  if (!targetPtyId) return false
+  if (!removePaneFromLayout(layout, source.id)) return false
+
+  const newTarget = layout.type === 'terminal' && layout.ptyId === targetPtyId
+    ? layout
+    : findPaneByPtyId(layout, targetPtyId)
+  if (!newTarget) return false
+
+  return splitLeafAtEdge(layout, newTarget.id, incoming, edge, newSplitId)
+}
