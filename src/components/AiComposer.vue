@@ -15,6 +15,7 @@ import type { ContextCompositionId, ContextCompositionNode } from '@shared/types
 import AttachmentFileIcon from './AttachmentFileIcon.vue'
 import HoverTipOverlay from './HoverTipOverlay.vue'
 import { useHoverTip, BUTTON_HOVER_TIP_DELAY_MS } from '../composables/useHoverTip'
+import { useOutputTokenRate } from '../composables/useOutputTokenRate'
 
 interface ContextStats {
   tokenEstimate: number
@@ -1245,13 +1246,24 @@ const consumedTokenLabel = computed(() => {
   return t('ai.sessionConsumedChip', { count: formatLiveTokens(displayedConsumed.value) })
 })
 
+const { rateKind: outputRateKind, rateText: outputRateText } = useOutputTokenRate(
+  () => props.contextStats.consumedCompletionTokens ?? 0,
+  () => props.isAgentRunning,
+  () => props.currentTabId,
+)
+
 const consumedTokenTitle = computed(() => {
   const stats = props.contextStats
   if (!stats.consumedTokens || stats.consumedTokens <= 0) return ''
-  return t('ai.sessionConsumedTitle', {
-    prompt: (stats.consumedPromptTokens ?? 0).toLocaleString(),
-    completion: (stats.consumedCompletionTokens ?? 0).toLocaleString(),
-  })
+  const prompt = (stats.consumedPromptTokens ?? 0).toLocaleString()
+  const completion = (stats.consumedCompletionTokens ?? 0).toLocaleString()
+  if (outputRateText.value && outputRateKind.value === 'live') {
+    return t('ai.sessionConsumedTitleLiveRate', { prompt, completion, rate: outputRateText.value })
+  }
+  if (outputRateText.value && outputRateKind.value === 'avg') {
+    return t('ai.sessionConsumedTitleAvgRate', { prompt, completion, rate: outputRateText.value })
+  }
+  return t('ai.sessionConsumedTitle', { prompt, completion })
 })
 
 const { hoverTip: consumedHoverTip, showTip: showConsumedTip, hideTip: hideConsumedTip } = useHoverTip({
