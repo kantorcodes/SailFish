@@ -12,6 +12,7 @@ import { getTerminalStateService } from '../../terminal-state.service'
 import { getTerminalAwarenessService, getProcessMonitor } from '../../terminal-awareness'
 import { getLastNLinesFromBuffer, getScreenAnalysisFromFrontend } from '../../screen-content.service'
 import { categorizeError, getErrorRecoverySuggestion, withRetry, truncateFromEnd, getPtyMaxCommandLength } from './utils'
+import { rejectOversizedCommand } from './command-persist'
 import { externalizeToolOutput, externalizeFailedError } from '../tool-output-externalize'
 import { lazyReconnectAfterDisconnect } from './pane-reconnect'
 import { appendCappedTerminalOutput, collapseConsecutiveNuls } from '../../../utils/terminal-output-sanitize'
@@ -75,21 +76,13 @@ export async function executeCommand(
   const isSsh = !!executor.getSshConfig?.(ptyId)
   const MAX_COMMAND_LENGTH = getPtyMaxCommandLength(isSsh)
   if (command.length > MAX_COMMAND_LENGTH) {
-    const errorMsg = t('hint.command_too_long', { length: command.length, max: MAX_COMMAND_LENGTH })
-    executor.addStep({
-      type: 'tool_call',
-      content: `🚫 ${command.slice(0, 100)}...`,
+    return rejectOversizedCommand({
+      command,
+      maxChars: MAX_COMMAND_LENGTH,
       toolName: 'execute_command',
-      toolArgs: { command: command.slice(0, 100) + '...' },
-      riskLevel: 'blocked'
+      executor,
+      remotePtyId: isSsh ? ptyId : undefined,
     })
-    executor.addStep({
-      type: 'tool_result',
-      content: errorMsg,
-      toolName: 'execute_command',
-      toolResult: errorMsg
-    })
-    return { success: false, output: '', error: errorMsg }
   }
 
   // 先检查终端状态

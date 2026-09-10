@@ -18,6 +18,7 @@ import { auditContextFromConfig } from '../audit-context-from-config'
 import { commandNeedsConfirm, isSubAgentBlocked, formatHardBlockedMessage } from '../command-audit/confirm-policy'
 import { resolveCommandToolConfirmation } from '../allowlist/resolve-command-confirm'
 import { truncateFromEnd, EXEC_MAX_COMMAND_LENGTH, formatTotalTime } from './utils'
+import { rejectOversizedCommand } from './command-persist'
 import { externalizeToolOutput, externalizeFailedError } from '../tool-output-externalize'
 import { getExecManager, MAX_PATTERN_LENGTH, type WaitReason } from './exec-manager'
 import { getSkillEnvMap, mapSkillEnvToDeclaredCase } from '../../../services/credential.service'
@@ -99,21 +100,12 @@ export async function executeCommandDirect(
 
   // 命令长度防误用（实际限制是 ARG_MAX，给 100KB 足够日常 oneliner）
   if (command.length > EXEC_MAX_COMMAND_LENGTH) {
-    const errorMsg = t('hint.command_too_long', { length: command.length, max: EXEC_MAX_COMMAND_LENGTH })
-    executor.addStep({
-      type: 'tool_call',
-      content: `🚫 ${command.slice(0, 100)}...`,
+    return rejectOversizedCommand({
+      command,
+      maxChars: EXEC_MAX_COMMAND_LENGTH,
       toolName: 'exec',
-      toolArgs: { command: command.slice(0, 100) + '...' },
-      riskLevel: 'blocked'
+      executor,
     })
-    executor.addStep({
-      type: 'tool_result',
-      content: errorMsg,
-      toolName: 'exec',
-      toolResult: errorMsg
-    })
-    return { success: false, output: '', error: errorMsg }
   }
 
   const handling = analyzeCommand(command)
