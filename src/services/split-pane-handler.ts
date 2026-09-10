@@ -242,7 +242,8 @@ async function dispatch(
                   sshConfig: tab.sshConfig
                 }),
                 isActive: true,
-                terminalType: tab.type as 'local' | 'ssh'
+                terminalType: tab.type as 'local' | 'ssh',
+                connecting: Boolean(tab.isLoading || store.isPtyReconnecting(tab.ptyId))
               }]
             : []
         }
@@ -299,6 +300,8 @@ interface ListedPaneInfo {
   connectionName: string
   isActive: boolean
   terminalType: string
+  /** 这一扇还在握手（新开或重连）。connected 为 false 且 connecting 为 false 才是真的断了 */
+  connecting: boolean
 }
 
 /**
@@ -325,7 +328,8 @@ function collectPanes(
         label: node.label || '',
         connectionName: store.getPaneConnectionName(node),
         isActive: Boolean(node.isActive),
-        terminalType: node.terminalType || 'local'
+        terminalType: node.terminalType || 'local',
+        connecting: Boolean(node.isConnecting || store.isPtyReconnecting(node.ptyId))
       })
       return
     }

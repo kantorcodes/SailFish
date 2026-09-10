@@ -1280,6 +1280,8 @@ export const useTerminalStore = defineStore('terminal', () => {
 
     const existing = inFlightReconnectByPtyId.get(lookupPtyId)
     if (existing) {
+      // 命中新开窗格的 pending 握手：id 用的是 reuseId，对外不变，
+      // 不必再走 disconnect / remap / bumpEpoch。将来若 pending 会换 id，必须改走完整路径。
       return existing
     }
 
@@ -2114,38 +2116,56 @@ export const useTerminalStore = defineStore('terminal', () => {
     resolved: ResolvedSplitTarget
   ): Promise<string | null> {
     const paneId = pane.id
-    const attemptId = resolved.terminalType === 'ssh' ? uuidv4() : undefined
-    if (attemptId) pane.connectAttemptId = attemptId
-    const connectedId = await createTerminalInstanceForTarget(resolved, {
-      reuseId: pane.ptyId,
-      attemptId
-    })
-    const live = tab.splitLayout
-      ? findPaneById(tab.splitLayout, paneId)
-      : null
-    if (!live || live.type !== 'terminal') {
-      if (connectedId) {
-        if (resolved.terminalType === 'local') {
-          window.electronAPI.pty.dispose(connectedId).catch(() => {})
-        } else {
-          window.electronAPI.ssh.disconnect(connectedId).catch(() => {})
+    const lookupPtyId = pane.ptyId
+
+    const run = (async (): Promise<{ success: boolean; error?: string }> => {
+      const attemptId = resolved.terminalType === 'ssh' ? uuidv4() : undefined
+      if (attemptId) pane.connectAttemptId = attemptId
+      const connectedId = await createTerminalInstanceForTarget(resolved, {
+        reuseId: pane.ptyId,
+        attemptId
+      })
+      const live = tab.splitLayout
+        ? findPaneById(tab.splitLayout, paneId)
+        : null
+      if (!live || live.type !== 'terminal') {
+        if (connectedId) {
+          if (resolved.terminalType === 'local') {
+            window.electronAPI.pty.dispose(connectedId).catch(() => {})
+          } else {
+            window.electronAPI.ssh.disconnect(connectedId).catch(() => {})
+          }
         }
+        return { success: false, error: 'pane or tab closed during connect' }
       }
-      return null
+      live.connectAttemptId = undefined
+      live.isConnecting = false
+      if (!connectedId) {
+        live.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
+        return { success: false, error: live.connectionError }
+      }
+      if (live.ptyId !== connectedId) live.ptyId = connectedId
+      live.connectionError = undefined
+      if (live.isActive) {
+        tab.ptyId = live.ptyId
+        tab.isConnected = true
+      }
+      return { success: true }
+    })()
+
+    if (lookupPtyId) {
+      inFlightReconnectByPtyId.set(lookupPtyId, run)
     }
-    live.connectAttemptId = undefined
-    live.isConnecting = false
-    if (!connectedId) {
-      live.connectionError = lastSplitError || i18n.global.t('terminal.connectionFailed')
-      return live.ptyId ?? null
+    try {
+      const result = await run
+      const live = tab.splitLayout ? findPaneById(tab.splitLayout, paneId) : null
+      // 连不上也把占位 id 留下，好让这一扇继续显示失败原因
+      return result.success
+        ? (live?.ptyId ?? lookupPtyId ?? null)
+        : (live?.ptyId ?? null)
+    } finally {
+      if (lookupPtyId) inFlightReconnectByPtyId.delete(lookupPtyId)
     }
-    if (live.ptyId !== connectedId) live.ptyId = connectedId
-    live.connectionError = undefined
-    if (live.isActive) {
-      tab.ptyId = live.ptyId
-      tab.isConnected = true
-    }
-    return live.ptyId ?? connectedId
   }
 
   /**

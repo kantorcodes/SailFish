@@ -38,6 +38,8 @@ interface PaneInfo {
    * TCP 未超时前远端刚重启仍可能为 true。
    */
   connected?: boolean
+  /** 这一扇还在握手（新开或重连），此时不要再调 ensure_connected */
+  connecting?: boolean
 }
 
 /**
@@ -293,7 +295,7 @@ export async function listPanesTool(
     : ''
 
   return ok(
-    `当前窗格列表${healedNote}。字段 label 是用户屏幕上的方位（左侧/右上…），connectionName 是该窗此刻连着的机器（用户屏幕上该窗格顶部就显示这个名字）——用户说"右边那台"或直接报机器名/IP 时按这两个字段对上是哪扇窗。字段 connected 仅表示主进程尚未观察到断开（非远端健康探测）。SSH 断线时调用 manage_pane(action=ensure_connected) 原地重连（成功后是新 shell）。窗格标识用 ptyId——给 pane_id 传该值即可。`,
+    `当前窗格列表${healedNote}。字段 label 是用户屏幕上的方位（左侧/右上…），connectionName 是该窗此刻连着的机器（用户屏幕上该窗格顶部就显示这个名字）——用户说"右边那台"或直接报机器名/IP 时按这两个字段对上是哪扇窗。字段 connected 仅表示主进程尚未观察到断开（非远端健康探测）。字段 connecting 为 true 表示这一扇正在握手，不要再调 ensure_connected。SSH 已断且未在握手时才调用 manage_pane(action=ensure_connected) 原地重连（成功后是新 shell）。窗格标识用 ptyId——给 pane_id 传该值即可。`,
     enriched
   )
 }
@@ -353,6 +355,9 @@ export async function ensureConnectedTool(
   const pane = panes.find(p => p.ptyId === ptyId)
   if (pane && pane.terminalType === 'local') {
     return fail(t('error.ssh_reconnect_failed') + '（本地终端不支持 ensure_connected；本期仅 SSH）')
+  }
+  if (pane?.connecting) {
+    return ok(t('pane.ensure_already_connecting', { paneId: ptyId }))
   }
 
   const outcome = await ensurePaneConnected(ptyId, config, { skipIfConnected: true })

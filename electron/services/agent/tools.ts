@@ -1175,12 +1175,12 @@ local_path 填相对路径时也归一到 workspace 内；填绝对路径才落�
         name: 'manage_pane',
         description: `管理当前会话的终端窗格与连通。用 action 区分操作：
 
-- list：列出窗格（ptyId / label / isActive / terminalType / connected）。connected 仅表示主进程尚未观察到断开，不是远端健康探测。
+- list：列出窗格（ptyId / label / isActive / terminalType / connected / connecting）。connected 仅表示主进程尚未观察到断开，不是远端健康探测。connecting 为 true 表示这一扇正在握手，不要再调 ensure_connected。
 ${paneOpenDesc}
 - split：再开一扇（须已有终端）。必填 direction=horizontal|vertical；可选 target：不传/inherit 复用激活窗格、local、ssh:<sessionId>。成功后返回的 ptyId 就是之后 execute_command / focus / close 用的编号，与 list 里那扇窗相同。
 ${paneCloseDesc}
 - focus：切焦点并切换 Agent 默认操作窗格（必填 pane_id）。
-- ensure_connected：确保 SSH 窗格连通；已通则幂等；断则原地重连（成功=新 shell）。可选 pane_id。
+- ensure_connected：确保 SSH 窗格连通；已通则幂等；正在连接则立刻返回、不要再调；已断且未在握手才原地重连（成功=新 shell）。可选 pane_id。
 
 窗格唯一标识是 ptyId（SSH 重连 reuseId 保持不变）。分屏或再开一扇成功后返回的编号就是这个值，给 execute_command 等传 pane_id 时直接用，不必再 list。
 窗里的命令用 execute_command 打进指定或当前那扇窗。

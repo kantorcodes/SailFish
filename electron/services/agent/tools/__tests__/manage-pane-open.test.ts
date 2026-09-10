@@ -144,6 +144,41 @@ describe('manage_pane action=split', () => {
   })
 })
 
+describe('manage_pane action=ensure_connected', () => {
+  beforeEach(() => {
+    exec.mockReset()
+  })
+
+  it('does not start a second reconnect when the pane is already connecting', async () => {
+    exec.mockResolvedValue({
+      ok: true,
+      data: {
+        tabId: 'tab-1',
+        mode: 'split',
+        panes: [
+          { ptyId: 'pty-local', label: '左侧', isActive: false, terminalType: 'local' },
+          {
+            ptyId: 'pty-ssh',
+            label: '右侧',
+            isActive: true,
+            terminalType: 'ssh',
+            connecting: true
+          }
+        ]
+      }
+    })
+    const result = await managePaneTool(
+      { action: 'ensure_connected', pane_id: 'pty-ssh' },
+      'tab-1',
+      { getCurrentPtyId: () => 'pty-local' } as never
+    )
+    expect(result.success).toBe(true)
+    expect(result.output).toContain('pty-ssh')
+    expect(exec).toHaveBeenCalledTimes(1)
+    expect(exec).toHaveBeenCalledWith({ type: 'list' }, 'tab-1')
+  })
+})
+
 describe('getAgentTools assistant hosted terminal', () => {
   it('exposes manage_pane open and execute_command in assistant mode', () => {
     const tools = getAgentTools(undefined, { mode: 'assistant' })

@@ -297,7 +297,7 @@ Agent 实例自身**没有强绑定 ptyId 字段**——每次 `run()` 通过 `c
 >   2. **断线与重连必须对 Agent 可见**：工具结果写明「已断开 / 已重连 / 当前为新 shell / 原操作未送达」，禁止静默装成旧会话还在。
 >   3. **主动运维**（如重启机器）：Agent 用 `manage_pane(action=ensure_connected)` 在 wait 之后显式接上。
 >   4. 任何重连成功对模型都是 **新登录 / 新 shell**（cwd/环境以当前为准）。
->   5. `manage_pane(action=list)` 带 **`connected`**：仅表示主进程侧 `hasInstance` 为真（尚未观察到断开），**不是**远端健康探测；TCP 未超时前远端刚重启仍可能为 true。
+>   5. `manage_pane(action=list)` 带 **`connected`**：仅表示主进程侧尚未观察到断开，**不是**远端健康探测；TCP 未超时前远端刚重启仍可能为 true。带 **`connecting`**：这一扇正在连接。正在连的时候不要再要求连一次，否则会叠上去、工具卡片像卡死。
 >   6. 同一窗格 in-flight 重连去重：并发工具共享同一结果，禁止连开多次。
 >   7. 窗格工具对外只暴露 **`manage_pane` + `list_ssh_sessions`**（旧 list_panes/split_terminal/close_pane/focus_pane/ensure_connected 不再单独注册）；`manage_pane` 整体不可并行。
 > - **关键取舍**：连通是工作台基础设施；懒重连只在用时；「意图是否还成立」由 Agent 根据可见结果自行决定；不根据命令内容猜是否 reboot。
