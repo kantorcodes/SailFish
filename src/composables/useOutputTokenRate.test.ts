@@ -81,6 +81,33 @@ describe('createOutputRateTracker', () => {
     expect(tracker.ingest(0, 1500)).toEqual({ kind: null, rate: null })
   })
 
+  it('估算回纠变小不清空已有速度', () => {
+    const tracker = createOutputRateTracker()
+    tracker.reset(0)
+    tracker.ingest(2500, 0)
+    expect(tracker.tick(1000)).toEqual({ kind: 'live', rate: 2500 })
+    const corrected = tracker.ingest(2333, 1100)
+    expect(corrected.kind).toBe('live')
+    expect(corrected.rate).not.toBeNull()
+    expect(tracker.settle(1100).kind).toBe('avg')
+  })
+
+  it('已经有实时速度时，settle 至少改成均速', () => {
+    const tracker = createOutputRateTracker()
+    tracker.reset(0)
+    tracker.ingest(80, 0)
+    expect(tracker.tick(200)).toEqual({ kind: 'live', rate: 400 })
+    expect(tracker.settle()).toEqual({ kind: 'avg', rate: 400 })
+  })
+
+  it('这场只在收尾跳一次数字，用开跑到停住的时间算平均', () => {
+    const tracker = createOutputRateTracker()
+    tracker.reset(0)
+    tracker.markRunStart(0, 0)
+    tracker.ingest(2333, 3000)
+    expect(tracker.settle(3000)).toEqual({ kind: 'avg', rate: 2333 / 3 })
+  })
+
   it('还没开口就 settle 不变', () => {
     const tracker = createOutputRateTracker()
     tracker.reset(50)

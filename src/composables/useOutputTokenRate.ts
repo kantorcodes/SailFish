@@ -30,6 +30,8 @@ export function createOutputRateTracker() {
   let burstStartAt = 0
   let lastIncreaseAt = 0
   let outputting = false
+  let runStartedAt = -1
+  let runStartTokens = 0
   let state: OutputRateState = { kind: null, rate: null }
 
   function applyRate(kind: OutputRateKind, tokens: number, elapsedMs: number): OutputRateState {
@@ -42,12 +44,21 @@ export function createOutputRateTracker() {
     return lastTokens - burstStartTokens
   }
 
+  function promoteToAvg(): OutputRateState {
+    if (state.kind === 'live' && state.rate != null) {
+      state = { kind: 'avg', rate: state.rate }
+    }
+    return state
+  }
+
   function reset(tokens = 0): OutputRateState {
     lastTokens = Math.max(0, tokens)
     burstStartTokens = lastTokens
     burstStartAt = 0
     lastIncreaseAt = 0
     outputting = false
+    runStartedAt = -1
+    runStartTokens = lastTokens
     state = { kind: null, rate: null }
     return state
   }
@@ -63,9 +74,22 @@ export function createOutputRateTracker() {
 
     reset,
 
+    /** 这场开始跑：只跳一次数字就停时，用这场的墙钟当平均的分母 */
+    markRunStart(tokens: number, now: number): void {
+      runStartedAt = now
+      runStartTokens = Math.max(0, tokens)
+    },
+
     ingest(tokens: number, now: number): OutputRateState {
       const next = Math.max(0, tokens)
-      if (next < lastTokens) return reset(next)
+      if (next === 0 && lastTokens > 0) return reset(0)
+      if (next < lastTokens) {
+        lastTokens = next
+        if (outputting && burstTokens() > 0) {
+          return applyRate('live', burstTokens(), now - burstStartAt)
+        }
+        return state
+      }
       if (next === lastTokens) return state
 
       if (!outputting) {
@@ -84,16 +108,25 @@ export function createOutputRateTracker() {
       return applyRate('live', burstTokens(), now - burstStartAt)
     },
 
-    /**
-     * 只跳过一次数字时，起止时刻相同，必须用停住的时刻当终点，否则平均永远算不出来。
-     */
     settle(now?: number): OutputRateState {
-      if (!outputting) return state
-      outputting = false
-      const endAt = lastIncreaseAt > burstStartAt
-        ? lastIncreaseAt
-        : (now ?? lastIncreaseAt)
-      return applyRate('avg', burstTokens(), endAt - burstStartAt)
+      if (outputting) {
+        outputting = false
+        const span = lastIncreaseAt - burstStartAt
+        let elapsed = span
+        if (elapsed < OUTPUT_RATE_MIN_ELAPSED_MS && now != null) {
+          elapsed = now - burstStartAt
+        }
+        if (
+          elapsed < OUTPUT_RATE_MIN_ELAPSED_MS &&
+          now != null &&
+          runStartedAt >= 0 &&
+          burstStartTokens === runStartTokens
+        ) {
+          elapsed = now - runStartedAt
+        }
+        applyRate('avg', burstTokens(), elapsed)
+      }
+      return promoteToAvg()
     },
   }
 }
@@ -167,7 +200,10 @@ export function useOutputTokenRate(
   })
 
   watch(() => toValue(isRunning), (running) => {
-    if (running) return
+    if (running) {
+      tracker.markRunStart(toValue(completionTokens), performance.now())
+      return
+    }
     settleNow()
   })
 
