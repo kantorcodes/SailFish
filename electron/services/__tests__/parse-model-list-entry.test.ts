@@ -63,4 +63,33 @@ describe('parseModelListEntry', () => {
     })
     expect(parsed?.maxOutputTokens).toBe(384_000)
   })
+
+  it('明确的输出上限等于窗口时不当作输出上限', () => {
+    const parsed = parseModelListEntry({
+      id: 'm',
+      context_length: 128_000,
+      max_output_tokens: 128_000,
+    })
+    expect(parsed?.contextLength).toBe(128_000)
+    expect(parsed?.maxOutputTokens).toBeUndefined()
+  })
+
+  it('明确的输出上限大于窗口时不当作输出上限', () => {
+    const parsed = parseModelListEntry({
+      id: 'm',
+      context_length: 128_000,
+      max_output_tokens: 384_000,
+    })
+    expect(parsed?.contextLength).toBe(128_000)
+    expect(parsed?.maxOutputTokens).toBeUndefined()
+  })
+
+  it('明确的输出上限小于窗口时仍采用', () => {
+    const parsed = parseModelListEntry({
+      id: 'm',
+      context_length: 128_000,
+      max_output_tokens: 8_192,
+    })
+    expect(parsed?.maxOutputTokens).toBe(8_192)
+  })
 })

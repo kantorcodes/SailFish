@@ -44,4 +44,28 @@ describe('resolveRequestBudget', () => {
     const budget = resolveRequestBudget({ contextLength: 1000, maxOutputTokens: 4000 })
     expect(budget.inputLimit).toBe(1)
   })
+
+  it('输出上限等于窗口时按没填处理，十几 K 的对话仍能发', () => {
+    const budget = resolveRequestBudget({ contextLength: 128_000, maxOutputTokens: 128_000 })
+    expect(budget.outputTokens).toBe(Math.min(DEFAULT_MAX_OUTPUT_TOKENS, 128_000 / 4))
+    expect(budget.inputLimit).toBeGreaterThan(80_000)
+  })
+
+  it('输出上限大于窗口时同样按没填处理', () => {
+    const budget = resolveRequestBudget({ contextLength: 128_000, maxOutputTokens: 384_000 })
+    expect(budget.outputTokens).toBe(Math.min(DEFAULT_MAX_OUTPUT_TOKENS, 128_000 / 4))
+    expect(budget.inputLimit).toBeGreaterThan(80_000)
+  })
+
+  it('用户填了比窗口小的输出上限：仍听用户的', () => {
+    const budget = resolveRequestBudget({ contextLength: 128_000, maxOutputTokens: 16_000 })
+    expect(budget.outputTokens).toBe(16_000)
+    expect(budget.inputLimit).toBe(128_000 - 16_000 - REQUEST_SAFETY_MARGIN_TOKENS)
+  })
+
+  it('用户填的输出偏大但仍小于窗口：输入至少留四分之一', () => {
+    const budget = resolveRequestBudget({ contextLength: 128_000, maxOutputTokens: 110_000 })
+    expect(budget.inputLimit).toBeGreaterThanOrEqual(32_000)
+    expect(budget.outputTokens).toBeLessThan(110_000)
+  })
 })

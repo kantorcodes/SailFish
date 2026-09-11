@@ -591,11 +591,15 @@ export function parseModelListEntry(raw: ModelListEntry): FetchedAiModel | null 
   const listedMaxTokens = asPositiveInt(raw.max_tokens)
   // max_tokens 单独出现时含义不清（有的厂商拿它表示上下文），
   // 只在同时有上下文、且明显更小的时候当作输出上限（Anthropic 列表）。
-  const maxOutputTokens = explicitOutput ?? (
+  const rawOutput = explicitOutput ?? (
     listedMaxTokens && contextLength && listedMaxTokens < contextLength
       ? listedMaxTokens
       : undefined
   )
+  // 输出上限 ≥ 窗口：那是「最多能写这么多」，不是每次都要预留的额度
+  const maxOutputTokens = rawOutput && contextLength && rawOutput >= contextLength
+    ? undefined
+    : rawOutput
 
   return {
     id,

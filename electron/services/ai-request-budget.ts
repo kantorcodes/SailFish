@@ -27,7 +27,8 @@ function asPositiveInt(value: unknown): number | undefined {
 
 /**
  * 能发的输入 = 窗口 − 这次输出额度 − 一点余量。
- * 未指定输出时：不超过默认 32768，也不超过窗口的四分之一（小窗口不被 32K 输出掏空）。
+ * 未指定输出、或报的输出 ≥ 窗口：不超过默认 32768，也不超过窗口的四分之一。
+ * 指定了更小的输出时听这个数，但仍保证输入至少留下窗口的四分之一。
  */
 export function resolveRequestBudget(
   profile?: Pick<AiProfile, 'contextLength' | 'maxOutputTokens'> | null,
@@ -36,9 +37,14 @@ export function resolveRequestBudget(
   const contextLength = asPositiveInt(profile?.contextLength) ?? DEFAULT_CONTEXT_LENGTH
   const configuredOutput = asPositiveInt(outputOverride) ?? asPositiveInt(profile?.maxOutputTokens)
   const quarterWindow = Math.max(1, Math.floor(contextLength / 4))
-  // 没填按三万二，同时不超过窗口的四分之一——避免小窗口被默认输出掏空，也不在 33K 附近断崖
-  const outputTokens = configuredOutput
-    ?? Math.min(DEFAULT_MAX_OUTPUT_TOKENS, quarterWindow)
+  // 对方报的数跟窗口一样大或更大：那是「最多能写这么多」，不是每次都要预留的额度
+  const usableConfigured =
+    configuredOutput && configuredOutput < contextLength ? configuredOutput : undefined
+  // 没填（或报的数不可用）按三万二，同时不超过窗口的四分之一——避免小窗口被默认输出掏空
+  const uncappedOutput = usableConfigured ?? Math.min(DEFAULT_MAX_OUTPUT_TOKENS, quarterWindow)
+  // 预留输出不能把输入空间吃到低于窗口四分之一
+  const maxOutputToLeaveInput = Math.max(1, contextLength - quarterWindow - REQUEST_SAFETY_MARGIN_TOKENS)
+  const outputTokens = Math.min(uncappedOutput, maxOutputToLeaveInput)
   const inputLimit = Math.max(1, contextLength - outputTokens - REQUEST_SAFETY_MARGIN_TOKENS)
   return { contextLength, outputTokens, inputLimit }
 }
