@@ -3,6 +3,9 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import { Bot, HardDrive, CalendarRange, History, Download, Upload, Clock, AlertTriangle, Search, X, ChevronDown, ChevronRight, ExternalLink, Monitor, Server, Coins, ArrowUpRight, ArrowDownLeft, Zap, FolderSymlink, RotateCcw, Terminal } from 'lucide-vue-next'
+import { applyCjkFriendlyMarkdown } from '../../utils/cjk-friendly-marked'
+
+applyCjkFriendlyMarkdown()
 
 const { t } = useI18n()
 const isSteamBuild = __STEAM_BUILD__

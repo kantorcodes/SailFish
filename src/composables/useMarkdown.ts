@@ -3,6 +3,7 @@
  * 处理 Markdown 解析、代码块交互和文件路径点击
  */
 import { marked, type Token } from 'marked'
+import { applyCjkFriendlyMarkdown } from '../utils/cjk-friendly-marked'
 import { useTerminalStore } from '../stores/terminal'
 import { toast } from './useToast'
 import {
@@ -12,6 +13,8 @@ import {
   isLocalFilePath,
   normalizeUncForOpen,
 } from '../utils/local-file-path'
+
+applyCjkFriendlyMarkdown()
 
 // ==================== Mermaid 图表渲染 ====================
 // 设计：marked 把 ```mermaid 代码块渲染成占位 <div class="mermaid-block">（存 encodeURIComponent

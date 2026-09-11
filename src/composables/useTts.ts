@@ -9,6 +9,9 @@
  */
 import { ref, onUnmounted } from 'vue'
 import { marked } from 'marked'
+import { applyCjkFriendlyMarkdown } from '../utils/cjk-friendly-marked'
+
+applyCjkFriendlyMarkdown()
 
 export interface TtsController {
   /** 喂入流式增量文本（每次传完整累积内容） */
