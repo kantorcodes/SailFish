@@ -1629,6 +1629,24 @@ export function useAgentMode(
     }
   }
 
+  const compactContext = async (hint?: string): Promise<
+    | { ok: true; freedTokens: number }
+    | { ok: false; reason: 'running' | 'empty' | 'failed' }
+  > => {
+    const agentKey = getAgentKey()
+    const tab = currentTab.value
+    if (!agentKey || !tab || tab.isRemote) return { ok: false, reason: 'empty' }
+    if (isAgentRunning.value) return { ok: false, reason: 'running' }
+    return window.electronAPI.agent.compactContext({
+      agentKey,
+      sessionId: agentState.value?.sessionId,
+      sessionStartTime: agentState.value?.sessionStartTime,
+      terminalType: tab.type,
+      sshHost: tab.sshConfig?.host,
+      hint
+    })
+  }
+
   /** 追加进当前这场还在跑的对话；不中止任务、不另起一轮。 */
   const appendToCurrentConversation = async (payload: {
     message: string
@@ -2537,6 +2555,7 @@ export function useAgentMode(
     isStepsCollapsed,
     toggleProcessFold,
     runAgent,
+    compactContext,
     abortAgent,
     followUpQueueView,
     isEditingFollowUp,

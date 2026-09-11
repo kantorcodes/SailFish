@@ -462,3 +462,10 @@ export interface StepResult {
   /** 是否需要中断（用户消息等） */
   interrupted?: boolean
 }
+
+/** 用户主动要求压缩上下文的结果 */
+export type CompactContextReason = 'running' | 'empty' | 'failed'
+
+export type CompactContextResult =
+  | { ok: true; freedTokens: number; beforeTokens: number; afterTokens: number }
+  | { ok: false; reason: CompactContextReason }

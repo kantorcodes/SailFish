@@ -174,6 +174,13 @@ export default {
     sessionConsumedTitleWithAvgRate: '输入 {prompt} · 输出 {completion} · 均速 {rate} tokens/s',
     contextUsageShowDetail: '查看组成',
     contextUsageHideDetail: '收起组成',
+    slashCompactDesc: '把这场对话收成交接，给后面腾地方',
+    slashHintKey: 'Tab 补全 · Enter 执行',
+    slashCompacting: '正在交接…',
+    slashCompacted: '已交接，大约腾出 {freed} tokens',
+    slashCompactEmpty: '没什么可压的',
+    slashCompactRunning: '等这场结束再压',
+    slashCompactFailed: '交接没做成',
     contextComposition: {
       system: '系统提示',
       identity: '身份与规则',

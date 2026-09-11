@@ -719,6 +719,7 @@ const {
   formatHistoryTime,
   ttsIsSpeaking,
   ttsStop,
+  compactContext,
 } = useAgentMode(
   messagesRef,
   async () => {
@@ -3224,6 +3225,7 @@ watch(() => props.tabId, async (newTabId, oldTabId) => {
         :tts-stop="ttsStop"
         :submit-message="handleComposerSubmit"
         :submit-empty-message="handleComposerEmptySubmit"
+        :compact-context="compactContext"
         :follow-up-queue="followUpQueueView"
         :is-editing-follow-up="isEditingFollowUp"
         :remove-follow-up="removeFollowUp"

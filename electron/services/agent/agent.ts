@@ -25,6 +25,7 @@ import type {
   PromptOptions,
   KnowledgeContextResult,
   RunStatus,
+  CompactContextResult,
   RiskLevel,
   TerminalType,
   ExecutionMode,
@@ -943,6 +944,121 @@ export abstract class Agent {
    */
   isRunning(): boolean {
     return this.currentRun?.isRunning ?? false
+  }
+
+  /**
+   * 用户主动交接：压缩工作窗口。不当成一轮对话。
+   * 正在跑时拒绝；几乎没内容可压时返回 empty。
+   */
+  async compactContext(opts: {
+    sessionId?: string
+    sessionStartTime?: number
+    terminalType: TerminalType
+    sshHost?: string
+    hint?: string
+  }): Promise<CompactContextResult> {
+    if (this.isRunning()) return { ok: false, reason: 'running' }
+
+    this.ensureConversationForCompact(opts)
+    const conv = this._conversation
+    if (!conv) return { ok: false, reason: 'empty' }
+
+    const prefix = conv.getCachePrefix()
+    const source = prefix?.length ? prefix : [...conv.messages]
+    if (source.length === 0) return { ok: false, reason: 'empty' }
+
+    const run: AgentRun = {
+      id: `compact_${Date.now()}`,
+      originalUserRequest: '',
+      messages: source.map(m => ({ ...m })),
+      steps: [],
+      isRunning: false,
+      aborted: false,
+      pendingUserMessages: [],
+      config: { ...DEFAULT_AGENT_CONFIG },
+      context: {
+        terminalOutput: [],
+        systemInfo: { os: '', shell: '' },
+        terminalType: opts.terminalType,
+        sshHost: opts.sshHost,
+        sessionId: conv.id,
+        sessionStartTime: conv.createdAt
+      },
+      realtimeOutputBuffer: [],
+      executionPhase: 'idle',
+      taskMessageLog: []
+    }
+
+    const hint = opts.hint?.trim()
+    const result = await this._contextWindow.userCompress(run, hint ? { userHint: hint } : undefined)
+    if (!result || result.freedTokens <= 0) return { ok: false, reason: 'empty' }
+
+    conv.setWorkingContext(run.messages)
+    conv.setCachePrefix(run.messages)
+    this.saveSessionToHistory()
+
+    const afterTokens = this._contextWindow.estimateCurrentPromptTokens(run.messages)
+    const bar: AgentContextBar = {
+      ...this._contextBar,
+      contextTokens: afterTokens
+    }
+    this.applyProfileFieldsToContextBar(bar)
+    this.setContextBar(bar)
+
+    log.info(`User compact: freed ${result.freedTokens} tokens (${result.beforeTokens} → ${result.afterTokens})`)
+    return {
+      ok: true,
+      freedTokens: result.freedTokens,
+      beforeTokens: result.beforeTokens,
+      afterTokens: result.afterTokens
+    }
+  }
+
+  private ensureConversationForCompact(opts: {
+    sessionId?: string
+    sessionStartTime?: number
+    terminalType: TerminalType
+    sshHost?: string
+  }): void {
+    if (!this._conversation) {
+      const manager = this.services.conversationManager
+      if (manager) {
+        this._conversation = manager.openConversationForRun({
+          agentKey: this._agentId,
+          terminalType: opts.terminalType,
+          sshHost: opts.sshHost,
+          contextSessionId: opts.sessionId,
+          contextStartTime: opts.sessionStartTime,
+          taskMemory: this.taskMemory
+        })
+      } else {
+        this._conversation = Conversation.create(
+          { agentKey: this._agentId ?? '', terminalType: opts.terminalType },
+          {
+            id: opts.sessionId ?? `session_${Date.now()}`,
+            createdAt: opts.sessionStartTime ?? Date.now(),
+            sshHost: opts.sshHost
+          },
+          { taskMemory: this.taskMemory }
+        )
+      }
+    }
+
+    const conv = this._conversation
+    const needsRestore =
+      !!this._sessionId &&
+      !this._isSubAgent &&
+      !this._isRestoring &&
+      !conv.getCachePrefix()?.length &&
+      conv.messages.length === 0
+    if (!needsRestore) return
+
+    this._isRestoring = true
+    try {
+      this.restoreFromHistory()
+    } finally {
+      this._isRestoring = false
+    }
   }
   
   /**
@@ -2949,7 +3065,7 @@ export abstract class Agent {
    * 算预算却打到视觉模型。压不动时会停止重试，不会反复烧摘要调用。
    */
   private async summarizeForCompression(
-    opts: { conversation: AiMessage[]; keepRecent: number }
+    opts: { conversation: AiMessage[]; keepRecent: number; userHint?: string }
   ): Promise<string | null> {
     const aiService = this.services.aiService
     if (!aiService?.chatWithTools) return null
@@ -2964,10 +3080,13 @@ export abstract class Agent {
       ...opts.conversation,
       {
         role: 'user',
-        content: t('agent.compress_summary_prompt', {
-          budget: SUMMARY_OUTPUT_BUDGET_CHARS,
-          keepRecent: opts.keepRecent
-        })
+        content: [
+          t('agent.compress_summary_prompt', {
+            budget: SUMMARY_OUTPUT_BUDGET_CHARS,
+            keepRecent: opts.keepRecent
+          }),
+          opts.userHint?.trim() ? t('agent.compress_summary_user_hint', { hint: opts.userHint.trim() }) : ''
+        ].filter(Boolean).join('\n\n')
       }
     ]
     const tools = stripToolMeta(this.getAvailableTools())

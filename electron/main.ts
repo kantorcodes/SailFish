@@ -4181,6 +4181,18 @@ ipcMain.handle('agent:abort', async (_event, ptyId: string) => {
   return agentService.abort(ptyId)
 })
 
+ipcMain.handle('agent:compactContext', async (_event, params: {
+  agentKey: string
+  sessionId?: string
+  sessionStartTime?: number
+  terminalType: import('@shared/types').TerminalType
+  sshHost?: string
+  hint?: string
+}) => {
+  const { agentService } = await rt()
+  return agentService.compactContext(params)
+})
+
 ipcMain.handle('agent:clearHistory', async (_event, ptyId: string) => {
   const { agentService } = await rt()
   agentService.resetSession(ptyId)

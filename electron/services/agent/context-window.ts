@@ -63,7 +63,7 @@ export interface ContextWindowDeps {
    *
    * 返回 null 或抛错 → 回退固定模板。
    */
-  summarizeMessages?: (opts: { conversation: AiMessage[]; keepRecent: number }) => Promise<string | null>
+  summarizeMessages?: (opts: { conversation: AiMessage[]; keepRecent: number; userHint?: string }) => Promise<string | null>
   /**
    * 主动压缩的最小可压缩范围（tokens），缺省用 MIN_PROACTIVE_RANGE_TOKENS。
    * 仅测试注入用——生产代码不要传。
@@ -705,6 +705,23 @@ export class ContextWindowManager {
    */
   async proactiveCompress(run: AgentRun): Promise<CompressResult | null> {
     if (this._proactiveCompressStalled) return null
+    const result = await this.compressByHandoff(run)
+    if (result && result.freedTokens < ContextWindowManager.MIN_EFFECTIVE_FREED_TOKENS) {
+      this._proactiveCompressStalled = true
+      log.warn(`Proactive compress stalled: only freed ${result.freedTokens} tokens, disabling further attempts this task`)
+    }
+    return result
+  }
+
+  /**
+   * 用户主动压缩：不看窗口是否快满，也不吃「上次压不动」的停手。
+   * 仍拒绝空结构 / 范围太小（写交接会亏本）——那种情况调用方应告诉用户没什么可压。
+   */
+  async userCompress(run: AgentRun, opts?: { userHint?: string }): Promise<CompressResult | null> {
+    return this.compressByHandoff(run, opts)
+  }
+
+  private async compressByHandoff(run: AgentRun, opts?: { userHint?: string }): Promise<CompressResult | null> {
     // 可压缩范围只算一次：摘要装配与实际归档必须用同一份消息切片，
     // 否则「摘要覆盖的内容」和「被归档的内容」可能不一致
     const range = this.findCompressibleRange(run, 2)
@@ -717,7 +734,7 @@ export class ContextWindowManager {
     const rangeStart = range.lastUserIndex + 1
     const rangeTokens = this.measureMessages(run, rangeStart, rangeStart + range.toCompress.length)
     if (rangeTokens < minRange) {
-      log.info(`Proactive compress skipped: compressible range too small (~${rangeTokens} tokens < ${minRange})`)
+      log.info(`Handoff compress skipped: compressible range too small (~${rangeTokens} tokens < ${minRange})`)
       return null
     }
     // 保留几轮必须在写小结**之前**定下来：提示词要如实告诉模型压完还能看到几轮，
@@ -727,17 +744,11 @@ export class ContextWindowManager {
     const effectiveRange = keepRecent === 2 ? range : this.findCompressibleRange(run, keepRecent)
     if (!effectiveRange) return null
 
-    const summary = await this.buildProactiveSummary(run.messages, keepRecent)
+    const summary = await this.buildProactiveSummary(run.messages, keepRecent, opts?.userHint)
     const result = this.compressWithRange(run, summary, keepRecent, effectiveRange)
     if (result) this._enabled = true
     if (result) {
-      log.info(`Proactive compress: freed ${result.freedTokens} tokens, kept recent ${result.keepRecent} rounds (archive ${result.archiveId})`)
-      // 实效防抖：压完基本没释放空间，说明剩下的结构压不动了（系统提示词占
-      // 主导、或历史已全是摘要）。再压只会反复烧一次摘要调用，交给紧急压缩兜底。
-      if (result.freedTokens < ContextWindowManager.MIN_EFFECTIVE_FREED_TOKENS) {
-        this._proactiveCompressStalled = true
-        log.warn(`Proactive compress stalled: only freed ${result.freedTokens} tokens, disabling further attempts this task`)
-      }
+      log.info(`Handoff compress: freed ${result.freedTokens} tokens, kept recent ${result.keepRecent} rounds (archive ${result.archiveId})`)
     }
     return result
   }
@@ -768,13 +779,17 @@ export class ContextWindowManager {
    * 主动压缩的摘要：优先让 AI 在完整对话里写交接小结（写给未来的自己），
    * 失败/不可用才回退固定模板。
    */
-  private async buildProactiveSummary(conversation: AiMessage[], keepRecent: number): Promise<string> {
+  private async buildProactiveSummary(
+    conversation: AiMessage[],
+    keepRecent: number,
+    userHint?: string
+  ): Promise<string> {
     const summarize = this.deps.summarizeMessages
     if (summarize) {
       try {
         // keepRecent 如实传给提示词：小结里说"还能看到最近几轮"必须与实际保留一致，
         // 模型据此判断哪些内容不必重复写
-        const aiSummary = await summarize({ conversation, keepRecent })
+        const aiSummary = await summarize({ conversation, keepRecent, userHint })
         if (aiSummary && aiSummary.trim()) return aiSummary.trim()
       } catch (err) {
         log.warn(`AI 小结生成失败，回退固定模板: ${err}`)

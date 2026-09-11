@@ -4,6 +4,13 @@ import { useI18n } from 'vue-i18n'
 import { useRandomPlaceholder } from '../composables/useRandomPlaceholder'
 import { X, Plus, Square, ArrowUp, Check, Mic, MicOff, Loader2, Volume2, ListTree, Pencil, CornerDownLeft, GripVertical, Sparkles } from 'lucide-vue-next'
 import { useMentions } from '../composables/useMentions'
+import {
+  exactSlashCommand,
+  matchSlashCommands,
+  parseLeadingSlash,
+  primarySlashName,
+  type SlashCommandDef
+} from '../composables/slash-commands'
 import { toast } from '../composables/useToast'
 import { useComposerQuoteStore } from '../stores/composer-quote'
 import { useConversationSkillsStore } from '../stores/conversation-skills'
@@ -90,6 +97,10 @@ const props = defineProps<{
    * 助手工作台用于 Markdown 选区作用域。
    */
   consumeWorkbenchContext?: () => import('@shared/types').WorkbenchContext | undefined
+  compactContext?: (hint?: string) => Promise<
+    | { ok: true; freedTokens: number }
+    | { ok: false; reason: 'running' | 'empty' | 'failed' }
+  >
   /** 嵌入欢迎页等非面板场景：去掉顶部分割线，使用独立圆角容器 */
   embedded?: boolean
   /** 文档铺满：同一套输入，换成浮在文档上的薄胶囊 */
@@ -779,6 +790,77 @@ const {
   expandMentions
 } = useMentions(inputText, currentTabIdRef, uploadedDocsRef, onSkillPicked)
 
+const slashMirrorEl = ref<HTMLDivElement | null>(null)
+const slashSelectedIndex = ref(0)
+const isCompacting = ref(false)
+
+const parsedSlash = computed(() => parseLeadingSlash(inputText.value.trimStart()))
+const slashMatches = computed(() => {
+  if (showMentionMenu.value || !parsedSlash.value) return []
+  return matchSlashCommands(parsedSlash.value.name)
+})
+const slashHintVisible = computed(() => slashMatches.value.length > 0)
+const slashHighlight = computed(() => {
+  if (!parsedSlash.value || slashMatches.value.length === 0) return null
+  const leading = inputText.value.match(/^\s*/)?.[0] ?? ''
+  return {
+    token: `${leading}${parsedSlash.value.raw}`,
+    rest: inputText.value.slice(leading.length + parsedSlash.value.raw.length)
+  }
+})
+
+watch(slashMatches, (matches) => {
+  if (slashSelectedIndex.value >= matches.length) slashSelectedIndex.value = 0
+})
+
+const syncSlashMirror = () => {
+  const ta = mentionInputEl.value
+  const mirror = slashMirrorEl.value
+  if (!ta || !mirror) return
+  mirror.scrollTop = ta.scrollTop
+}
+
+const completeSlash = (def: SlashCommandDef) => {
+  const leading = inputText.value.match(/^\s*/)?.[0] ?? ''
+  const rest = parsedSlash.value?.rest ?? ''
+  inputText.value = rest ? `${leading}/${primarySlashName(def)} ${rest}` : `${leading}/${primarySlashName(def)} `
+  nextTick(() => {
+    focusInput()
+    measureTextareaHeight()
+    syncSlashMirror()
+  })
+}
+
+const applySlashResult = (result: { ok: true; freedTokens: number } | { ok: false; reason: string }) => {
+  if (result.ok) {
+    toast.success(t('ai.slashCompacted', { freed: result.freedTokens.toLocaleString() }))
+    return
+  }
+  if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning'))
+  else if (result.reason === 'failed') toast.error(t('ai.slashCompactFailed'))
+  else toast.info(t('ai.slashCompactEmpty'))
+}
+
+const runSlashCommand = async (def: SlashCommandDef, hint?: string) => {
+  if (def.id !== 'compact') return
+  if (isCompacting.value) return
+  inputText.value = ''
+  void pickRandomPlaceholder()
+  if (!props.compactContext) {
+    applySlashResult({ ok: false, reason: 'empty' })
+    return
+  }
+  isCompacting.value = true
+  toast.info(t('ai.slashCompacting'))
+  try {
+    applySlashResult(await props.compactContext(hint))
+  } catch {
+    applySlashResult({ ok: false, reason: 'failed' })
+  } finally {
+    isCompacting.value = false
+  }
+}
+
 const focusInput = () => {
   mentionInputEl.value?.focus()
 }
@@ -1051,8 +1133,11 @@ const setMentionSelectedIndex = (index: number) => {
 const handleInputChange = (event: Event) => {
   const textarea = event.target as HTMLTextAreaElement
   const cursorPos = textarea.selectionStart || 0
-  detectTrigger(textarea.value, cursorPos)
+  if (!parseLeadingSlash(textarea.value.trimStart())) {
+    detectTrigger(textarea.value, cursorPos)
+  }
   measureTextareaHeight()
+  syncSlashMirror()
 }
 
 const handleInputBlur = () => {
@@ -1072,6 +1157,31 @@ const selectSuggestion = (suggestion: typeof mentionSuggestions.value[0]) => {
 }
 
 const handleInputKeyDown = (event: KeyboardEvent) => {
+  if (slashHintVisible.value && !showMentionMenu.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      slashSelectedIndex.value = Math.min(slashMatches.value.length - 1, slashSelectedIndex.value + 1)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      slashSelectedIndex.value = Math.max(0, slashSelectedIndex.value - 1)
+      return
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      const selected = slashMatches.value[slashSelectedIndex.value]
+      if (selected) completeSlash(selected)
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !isComposing.value) {
+      event.preventDefault()
+      const selected = slashMatches.value[slashSelectedIndex.value]
+      if (selected) void runSlashCommand(selected, parsedSlash.value?.rest)
+      return
+    }
+  }
+
   if (showMentionMenu.value) {
     if (event.key === 'Escape' && skillMenuStandalone.value) {
       event.preventDefault()
@@ -1116,7 +1226,7 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
 }
 
 const handleSend = async (opts?: { enqueue?: boolean }) => {
-  if (isComposing.value) return
+  if (isComposing.value || isCompacting.value) return
   if (props.isAttaching) {
     toast.warning(t('ai.parsingPleaseWait'))
     return
@@ -1171,6 +1281,16 @@ const handleSend = async (opts?: { enqueue?: boolean }) => {
   }
 
   const rawInput = inputText.value.trim()
+  const slash = parseLeadingSlash(rawInput)
+  if (!opts?.enqueue && !isEditingFollowUp.value && slash) {
+    const exact = exactSlashCommand(slash.name)
+    const selected = exact ?? (slashHintVisible.value ? slashMatches.value[slashSelectedIndex.value] : undefined)
+    if (selected) {
+      await runSlashCommand(selected, slash.rest)
+      return
+    }
+  }
+
   inputText.value = ''
   void pickRandomPlaceholder()
   props.clearTabError()
@@ -1465,6 +1585,29 @@ const handleSendClick = (event: MouseEvent) => {
     </button>
   </div>
 
+  <div
+    v-if="slashHintVisible"
+    class="slash-hint"
+    role="listbox"
+    :aria-label="t('ai.slashHintKey')"
+  >
+    <button
+      v-for="(cmd, index) in slashMatches"
+      :key="cmd.id"
+      type="button"
+      class="slash-hint-item"
+      :class="{ active: index === slashSelectedIndex }"
+      role="option"
+      :aria-selected="index === slashSelectedIndex"
+      @mousedown.prevent="completeSlash(cmd)"
+      @mouseenter="slashSelectedIndex = index"
+    >
+      <span class="slash-hint-name">/{{ primarySlashName(cmd) }}</span>
+      <span class="slash-hint-desc">{{ t('ai.slashCompactDesc') }}</span>
+      <span class="slash-hint-key">{{ t('ai.slashHintKey') }}</span>
+    </button>
+  </div>
+
   <div class="ai-input" :class="{ 'ai-input-embedded': embedded, 'ai-input-overlay': overlay, 'ai-input-editing-follow-up': isEditingFollowUp }">
     <div
       v-if="!overlay && contextStats.tokenEstimate > 0"
@@ -1646,11 +1789,20 @@ const handleSendClick = (event: MouseEvent) => {
       </button>
 
       <div ref="textareaWrapEl" class="input-textarea-wrap">
+        <div
+          v-if="slashHighlight"
+          ref="slashMirrorEl"
+          class="slash-mirror"
+          aria-hidden="true"
+        ><span class="slash-token">{{ slashHighlight.token }}</span><span>{{ slashHighlight.rest }}</span></div>
         <textarea
           ref="mentionInputEl"
           v-model="inputText"
+          :class="{ 'has-slash-overlay': !!slashHighlight }"
           :placeholder="composerPlaceholder"
+          :disabled="isCompacting"
           @input="handleInputChange"
+          @scroll="syncSlashMirror"
           @keydown="handleInputKeyDown"
           @paste="handlePaste"
           @compositionstart="isComposing = true"
@@ -1815,7 +1967,7 @@ const handleSendClick = (event: MouseEvent) => {
           <button v-else-if="isAgentRunning" class="stop-btn" @click="abortAgent" :title="t('ai.stopAgent')">
             <Square :size="16" fill="currentColor" />
           </button>
-          <button v-else class="send-btn send-btn-agent" :disabled="isAttaching || !canSubmitMessage" :title="sendButtonTitle" @click="handleSendClick">
+          <button v-else class="send-btn send-btn-agent" :disabled="isAttaching || isCompacting || !canSubmitMessage" :title="sendButtonTitle" @click="handleSendClick">
             <ArrowUp :size="18" />
           </button>
         </div>
@@ -1893,7 +2045,7 @@ const handleSendClick = (event: MouseEvent) => {
         <button
           v-else
           class="send-btn send-btn-agent"
-          :disabled="isAttaching || !canSubmitMessage"
+          :disabled="isAttaching || isCompacting || !canSubmitMessage"
           :title="sendButtonTitle"
           @click="handleSendClick"
         >
@@ -3025,6 +3177,83 @@ const handleSendClick = (event: MouseEvent) => {
 .input-textarea-wrap {
   flex: 1;
   min-width: 0;
+  position: relative;
+}
+
+.slash-mirror {
+  position: absolute;
+  inset: 0;
+  padding: 7px 4px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4286;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text-primary);
+}
+
+.slash-token {
+  color: var(--accent-primary);
+  background: rgba(var(--accent-rgb), 0.14);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.ai-input textarea.has-slash-overlay {
+  color: transparent;
+  caret-color: var(--text-primary);
+}
+
+.slash-hint {
+  margin: 0 0 8px;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.slash-hint-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.slash-hint-item.active {
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
+.slash-hint-name {
+  flex-shrink: 0;
+  color: var(--accent-primary);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.slash-hint-desc {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-hint-key {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .input-container-two-row textarea {

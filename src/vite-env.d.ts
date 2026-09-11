@@ -688,6 +688,17 @@ interface Window {
         profileId?: string
       ) => Promise<{ success: boolean; result?: string; error?: string; aborted?: boolean }>
       abort: (ptyId: string) => Promise<boolean>
+      compactContext: (params: {
+        agentKey: string
+        sessionId?: string
+        sessionStartTime?: number
+        terminalType: import('@shared/types').TerminalType
+        sshHost?: string
+        hint?: string
+      }) => Promise<
+        | { ok: true; freedTokens: number; beforeTokens: number; afterTokens: number }
+        | { ok: false; reason: 'running' | 'empty' | 'failed' }
+      >
       confirm: (params: {
         ptyId: string
         toolCallId: string

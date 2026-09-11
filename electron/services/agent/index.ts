@@ -24,6 +24,8 @@ import type {
   RunStatus,
   AgentExecutionPhase,
   CommandRiskPolicy,
+  CompactContextResult,
+  TerminalType,
 } from './types'
 import type { VisibleConversationSkill } from '@shared/types'
 import { SailFish } from './sailfish'
@@ -706,6 +708,24 @@ export class AgentService {
     const agent = this.getAgent(ptyId)
     return agent?.abort() ?? false
     }
+
+  async compactContext(params: {
+    agentKey: string
+    sessionId?: string
+    sessionStartTime?: number
+    terminalType: TerminalType
+    sshHost?: string
+    hint?: string
+  }): Promise<CompactContextResult> {
+    const agent = this.getOrCreateAgent(params.agentKey)
+    return agent.compactContext({
+      sessionId: params.sessionId,
+      sessionStartTime: params.sessionStartTime,
+      terminalType: params.terminalType,
+      sshHost: params.sshHost,
+      hint: params.hint
+    })
+  }
     
   /**
    * 确认工具调用

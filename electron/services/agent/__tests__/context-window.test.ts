@@ -1094,3 +1094,62 @@ describe('ContextWindowManager — 历史任务成对保留', () => {
     expect(afterSecond).toBeLessThanOrEqual(afterFirst + m.getPreservedPairsBudget())
   })
 })
+
+describe('ContextWindowManager.userCompress', () => {
+  it('窗口还宽裕也压（不要求真实锚点 / 快满）', async () => {
+    const m = new ContextWindowManager(makeDeps({
+      getLastPromptTokens: () => undefined
+    }))
+    const run = makeRun([
+      user('do'),
+      asst('a1', [tc('c1', 'foo')]), tool('c1', 'x'.repeat(4000)),
+      asst('a2', [tc('c2', 'bar')]), tool('c2', 'y'.repeat(4000)),
+      asst('a3', [tc('c3', 'baz')]), tool('c3', 'z'.repeat(4000)),
+      asst('a4', [tc('c4', 'qux')]), tool('c4', 'w'.repeat(4000))
+    ])
+    const result = await m.userCompress(run)
+    expect(result).not.toBeNull()
+    expect(result!.freedTokens).toBeGreaterThan(0)
+  })
+
+  it('上次主动压缩停手之后，用户要求仍能再压', async () => {
+    const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => 125000 }))
+    const run = multiTaskRun()
+    const first = await m.proactiveCompress(run)
+    expect(first).not.toBeNull()
+    if (first && first.freedTokens < ContextWindowManager.MIN_EFFECTIVE_FREED_TOKENS) {
+      expect(await m.proactiveCompress(run)).toBeNull()
+    }
+    run.messages.push(
+      asst('', [tc('u1', 'exec')]), tool('u1', 'x'.repeat(4000)),
+      asst('', [tc('u2', 'exec')]), tool('u2', 'y'.repeat(4000)),
+      asst('', [tc('u3', 'exec')]), tool('u3', 'z'.repeat(4000))
+    )
+    expect(await m.userCompress(run)).not.toBeNull()
+  })
+
+  it('范围太小仍跳过，不写交接', async () => {
+    const summarize = vi.fn()
+    const m = new ContextWindowManager(makeDeps({
+      minProactiveRangeTokens: 3000,
+      summarizeMessages: summarize
+    }))
+    const run = makeRun([
+      user('do'),
+      asst('a1', [tc('c1', 'foo')]), tool('c1', 'r1'),
+      asst('a2', [tc('c2', 'bar')]), tool('c2', 'r2'),
+      asst('a3', [tc('c3', 'baz')]), tool('c3', 'r3')
+    ])
+    expect(await m.userCompress(run)).toBeNull()
+    expect(summarize).not.toHaveBeenCalled()
+  })
+
+  it('把用户补充交给写小结', async () => {
+    const summarize = vi.fn().mockResolvedValue('小结')
+    const m = new ContextWindowManager(makeDeps({ summarizeMessages: summarize }))
+    await m.userCompress(multiTaskRun(), { userHint: '重点留部署步骤' })
+    expect(summarize).toHaveBeenCalledWith(expect.objectContaining({
+      userHint: '重点留部署步骤'
+    }))
+  })
+})

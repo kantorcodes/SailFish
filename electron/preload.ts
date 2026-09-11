@@ -949,6 +949,18 @@ const electronAPI = {
     // 中止 Agent（使用 ptyId 或 agentId）
     abort: (ptyId: string) => ipcRenderer.invoke('agent:abort', ptyId) as Promise<boolean>,
 
+    compactContext: (params: {
+      agentKey: string
+      sessionId?: string
+      sessionStartTime?: number
+      terminalType: import('@shared/types').TerminalType
+      sshHost?: string
+      hint?: string
+    }) => ipcRenderer.invoke('agent:compactContext', params) as Promise<
+      | { ok: true; freedTokens: number; beforeTokens: number; afterTokens: number }
+      | { ok: false; reason: 'running' | 'empty' | 'failed' }
+    >,
+
     // 确认工具调用（使用 ptyId）
     confirm: (params: {
       ptyId: string
