@@ -11,6 +11,7 @@ import { extractBuiltinMapIdsFromOption } from '../../../../../shared/chart-maps
 import { resolveChartBackground, type ChartTheme } from './presets'
 import { renderToSvg, renderToPng, type RenderSize } from './ssr'
 import { sanitizeOptionForIpc, stripFormatterMarkers } from './ipc-sanitize'
+import { readChartJsonFile, resolveExclusiveSource } from './json-file'
 
 /** 输出格式：svg 矢量（默认）/ png 位图（嵌入 Word/PDF/IM 等） */
 type ChartFormat = 'svg' | 'png'
@@ -78,6 +79,8 @@ export async function executeChartTool(
       return generateChart(args, executor)
     case 'render_echarts_option':
       return renderEchartsOption(args, executor)
+    case 'inspect_chart_file':
+      return inspectChartFile(args, executor)
     default:
       return { success: false, output: '', error: t('chart.unknown_tool', { name: toolName }) }
   }
@@ -92,13 +95,33 @@ async function generateChart(
     return { success: false, output: '', error: t('chart.invalid_type', { type: String(type) }) }
   }
 
+  const source = resolveExclusiveSource(args.data, args.data_file)
+  if (source.kind === 'error') {
+    return { success: false, output: '', error: t('chart.data_xor') }
+  }
+
+  let data = args.data
+  let dataFilePath: string | undefined
+  if (source.kind === 'file') {
+    try {
+      const loaded = await readChartJsonFile(source.path)
+      data = loaded.value
+      dataFilePath = loaded.path
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { success: false, output: '', error: msg }
+    }
+  }
+
   const size = clampSize(args.width, args.height)
-  const input = argsToChartInput(args, type)
+  const input = argsToChartInput({ ...args, data }, type)
   const format = parseFormat(args.format)
   const pixelRatio = clampPixelRatio(args.pixel_ratio, format, size)
 
   // 步骤卡片只在 AI 显式传 format 时显示该字段，避免给"默认 svg"的旧调用平添噪音
+  // 文件入口只报路径，不把完整数组塞进卡片
   const toolArgs: Record<string, unknown> = { type, width: size.width, height: size.height }
+  if (dataFilePath) toolArgs.data_file = dataFilePath
   if (args.format !== undefined) toolArgs.format = format
   // pixel_ratio 仅 PNG 有意义；显式传或非默认值才进卡片，让用户/开发能看到实际生效的 DPI
   if (format === 'png' && (args.pixel_ratio !== undefined || pixelRatio !== DEFAULT_PNG_PIXEL_RATIO)) {
@@ -141,9 +164,12 @@ async function generateChart(
     }
   }
 
-  const output = savedPath
-    ? t('chart.generated_with_path', { type, path: savedPath })
-    : t('chart.generated', { type })
+  const output = [
+    savedPath
+      ? t('chart.generated_with_path', { type, path: savedPath })
+      : t('chart.generated', { type }),
+    dataFilePath ? t('chart.source_file', { path: dataFilePath }) : ''
+  ].filter(Boolean).join('\n')
 
   // chart skill 的图首要目标是「展示给用户」：
   //   - step.echartsOption（svg 模式专属）让前端把图实例化为「活图」，用户能 hover
@@ -210,14 +236,67 @@ function applyChartBackground(
   }
 }
 
+async function inspectChartFile(
+  args: Record<string, unknown>,
+  executor: ToolExecutorConfig
+): Promise<ToolResult> {
+  const rawPath = typeof args.path === 'string' ? args.path : ''
+  executor.addStep({
+    type: 'tool_call',
+    content: t('chart.inspecting', { path: rawPath }),
+    toolName: 'inspect_chart_file',
+    toolArgs: { path: rawPath },
+    riskLevel: 'safe'
+  })
+
+  try {
+    const loaded = await readChartJsonFile(rawPath)
+    const output = JSON.stringify(loaded.summary, null, 2)
+    executor.addStep({
+      type: 'tool_result',
+      content: t('chart.inspected', { path: loaded.path }),
+      toolName: 'inspect_chart_file',
+      toolResult: output
+    })
+    return { success: true, output }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    executor.addStep({
+      type: 'tool_result',
+      content: t('chart.inspect_failed'),
+      toolName: 'inspect_chart_file',
+      toolResult: msg
+    })
+    return { success: false, output: '', error: msg }
+  }
+}
+
 async function renderEchartsOption(
   args: Record<string, unknown>,
   executor: ToolExecutorConfig
 ): Promise<ToolResult> {
+  const source = resolveExclusiveSource(args.option, args.option_file)
+  if (source.kind === 'error') {
+    return { success: false, output: '', error: t('chart.option_xor') }
+  }
+
+  let rawOption = args.option
+  let optionFilePath: string | undefined
+  if (source.kind === 'file') {
+    try {
+      const loaded = await readChartJsonFile(source.path)
+      rawOption = loaded.value
+      optionFilePath = loaded.path
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { success: false, output: '', error: msg }
+    }
+  }
+
   // 1) option 兜底：必填，且必须是 plain object（或可解析 JSON 字符串）
   let option: EChartsOption
   try {
-    option = applyChartBackground(parseEchartsOption(args.option), args)
+    option = applyChartBackground(parseEchartsOption(rawOption), args)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { success: false, output: '', error: msg }
@@ -231,6 +310,7 @@ async function renderEchartsOption(
 
   // 2) 步骤卡片只展示 size + 可选 title，避免把整个 option（可能很大）塞进 toolArgs
   const toolArgs: Record<string, unknown> = { width: size.width, height: size.height, title }
+  if (optionFilePath) toolArgs.option_file = optionFilePath
   if (args.format !== undefined) toolArgs.format = format
   if (format === 'png' && (args.pixel_ratio !== undefined || pixelRatio !== DEFAULT_PNG_PIXEL_RATIO)) {
     toolArgs.pixel_ratio = pixelRatio
@@ -270,9 +350,12 @@ async function renderEchartsOption(
     }
   }
 
-  const output = savedPath
-    ? t('chart.echarts_rendered_with_path', { path: savedPath })
-    : t('chart.echarts_rendered')
+  const output = [
+    savedPath
+      ? t('chart.echarts_rendered_with_path', { path: savedPath })
+      : t('chart.echarts_rendered'),
+    optionFilePath ? t('chart.source_file', { path: optionFilePath }) : ''
+  ].filter(Boolean).join('\n')
 
   // 同 generate_chart：svg 模式投递 echartsOption + images（SVG 兜底），让前端实例化交互。
   //

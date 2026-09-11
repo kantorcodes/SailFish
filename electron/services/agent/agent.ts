@@ -82,6 +82,8 @@ import {
 } from './prompt-builder'
 import { consumeProactiveContext } from './proactive-store'
 import { applyParallelShare, computeToolOutputBudget } from './tool-output-budget'
+import { collapseRepeatedToolOutputs, reduceRepeatedToolOutput } from './repeated-tool-output'
+import { SUMMARY_MAX_OUTPUT_TOKENS } from '../ai-request-budget'
 import { t, type TranslationKey } from './i18n'
 import { createSkillSession, SkillSession, getSkill } from './skills'
 import { McpToolSession, parseMcpSkillId, toMcpSkillId } from './mcp-tool-session'
@@ -2825,6 +2827,19 @@ export abstract class Agent {
       }
     }
 
+    // 发送前：估出来已经装不下就先紧急压缩（冷启动也算）。
+    // 主动写交接小结仍只走上面有真实用量的路径；这里用固定模板，避免刚建好的上下文被误拆。
+    if (this._contextWindow.needsRequestCompaction(run)) {
+      const compressed = this._contextWindow.emergencyCompress(run)
+      if (compressed) {
+        this._conversation?.setWorkingContext(run.messages)
+        log.warn(`Pre-send compact (lastPromptTokens=${this._lastPromptTokens}, inputLimit=${this._contextWindow.getInputLimit()}), kept recent ${compressed.keepRecent}, freed ${compressed.freedTokens} tokens`)
+      }
+      if (this._contextWindow.needsRequestCompaction(run)) {
+        throw new Error(t('error.context_length_exceeded'))
+      }
+    }
+
     // 记录流式执行前的步骤数，用于后续 ensureToolResultStep 正确检测预执行工具的步骤
     const stepCountBeforeStreaming = run.steps.length
 
@@ -2889,8 +2904,17 @@ export abstract class Agent {
         run.messages.push(assistantMsg)
         run.taskMessageLog.push({ ...assistantMsg })
 
-        for (const completed of preExecuted) {
-          this.processToolResult(run, completed.toolCall, completed.result, completed.toolArgs)
+        const collapsedEarly = collapseRepeatedToolOutputs(
+          run.messages,
+          preExecuted.map(item => ({ id: item.toolCall.id, result: item.result }))
+        )
+        for (let i = 0; i < preExecuted.length; i++) {
+          const completed = preExecuted[i]
+          const result = collapsedEarly[i]
+          if (result !== completed.result) {
+            this.refreshToolResultPreview(run, stepCountBeforeStreaming, completed.toolCall, result)
+          }
+          this.processToolResult(run, completed.toolCall, result, completed.toolArgs)
         }
         for (const [toolCallId, failure] of run.streamEarlyFailures) {
           const toolCall: ToolCall = {
@@ -3125,8 +3149,15 @@ export abstract class Agent {
     ]
     const tools = stripToolMeta(this.getAvailableTools())
     const profileId = this.resolveContextBudgetProfileId()
+    const summaryInputLimit = this._contextWindow.getInputLimit(SUMMARY_MAX_OUTPUT_TOKENS)
+    if (this._contextWindow.estimateTotalTokens(messages) > summaryInputLimit) {
+      log.warn(`Compaction summary skipped: estimated input exceeds summary budget (${summaryInputLimit})`)
+      return null
+    }
 
-    const first = await aiService.chatWithTools(messages, tools, profileId)
+    const first = await aiService.chatWithTools(messages, tools, profileId, undefined, {
+      maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS
+    })
     if (first?.content?.trim()) return first.content.trim()
 
     // 模型没写正文、转头去调工具了。再要一次并禁止调用——部分 provider 在
@@ -3134,7 +3165,8 @@ export abstract class Agent {
     // 但比压缩落空强。仍不给正文就交给固定模板收场。
     log.warn('Compaction summary returned no text (model chose tools); retrying with tool calls disabled')
     const retry = await aiService.chatWithTools(messages, tools, profileId, undefined, {
-      toolChoice: 'none'
+      toolChoice: 'none',
+      maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS
     })
     return retry?.content?.trim() || null
   }
@@ -4036,13 +4068,26 @@ export abstract class Agent {
         log.info(`Streaming pre-executed ${preExecuted.length} tools: [${names}]`)
       }
 
-      for (const toolCall of toolCalls) {
-        if (!preExecutedIds.has(toolCall.id)) continue
-        const completed = preExecuted.find(r => r.toolCall.id === toolCall.id)!
+      const orderedPreExecuted = toolCalls.flatMap((toolCall) => {
+        if (!preExecutedIds.has(toolCall.id)) return []
+        const completed = preExecuted.find(r => r.toolCall.id === toolCall.id)
+        return completed ? [{ toolCall, ...completed }] : []
+      })
+      const collapsedPreExecuted = collapseRepeatedToolOutputs(
+        run.messages,
+        orderedPreExecuted.map(item => ({ id: item.toolCall.id, result: item.result }))
+      )
+
+      for (let i = 0; i < orderedPreExecuted.length; i++) {
+        const { toolCall, toolArgs } = orderedPreExecuted[i]
+        const result = collapsedPreExecuted[i]
         // 兜底再调一次：若 onToolCompleted 出错或被跳过，这里仍能保证 UI 状态收尾
-        this.ensureToolResultStep(run, stepCountBeforeStreaming, toolCall, completed.result)
-        this.processToolResult(run, toolCall, completed.result, completed.toolArgs)
-        this.finalizeToolCallStep(run, toolCall.id, completed.result.success)
+        this.ensureToolResultStep(run, stepCountBeforeStreaming, toolCall, result)
+        if (result !== orderedPreExecuted[i].result) {
+          this.refreshToolResultPreview(run, stepCountBeforeStreaming, toolCall, result)
+        }
+        this.processToolResult(run, toolCall, result, toolArgs)
+        this.finalizeToolCallStep(run, toolCall.id, result.success)
       }
 
       // 过滤出未被流式执行器处理的工具
@@ -4108,13 +4153,22 @@ export abstract class Agent {
     })
 
     const results = await Promise.all(parallelPromises)
+    const collapsed = collapseRepeatedToolOutputs(
+      run.messages,
+      results.map(item => ({ id: item.toolCall.id, result: item.result }))
+    )
 
     const batchElapsed = Date.now() - batchStartTime
-    const successCount = results.filter(r => r.result.success).length
+    const successCount = collapsed.filter(r => r.success).length
     log.info(`Tools parallel done: ${successCount}/${results.length} succeeded, ${batchElapsed}ms`)
 
     // 按原始顺序写入消息历史（协议层面）
-    for (const { toolCall, result, toolArgs } of results) {
+    for (let i = 0; i < results.length; i++) {
+      const { toolCall, toolArgs } = results[i]
+      const result = collapsed[i]
+      if (result !== results[i].result) {
+        this.refreshToolResultPreview(run, stepCountBefore, toolCall, result)
+      }
       this.processToolResult(run, toolCall, result, toolArgs)
     }
   }
@@ -4314,10 +4368,14 @@ export abstract class Agent {
     const stepCountBefore = run.steps.length
 
     const { result, toolArgs } = await this.executeToolWithChecks(run, toolCall, toolExecutorConfig)
+    const reduced = reduceRepeatedToolOutput(run.messages, result)
 
-    this.ensureToolResultStep(run, stepCountBefore, toolCall, result)
-    this.processToolResult(run, toolCall, result, toolArgs)
-    this.finalizeToolCallStep(run, toolCall.id, result.success)
+    this.ensureToolResultStep(run, stepCountBefore, toolCall, reduced)
+    if (reduced !== result) {
+      this.refreshToolResultPreview(run, stepCountBefore, toolCall, reduced)
+    }
+    this.processToolResult(run, toolCall, reduced, toolArgs)
+    this.finalizeToolCallStep(run, toolCall.id, reduced.success)
   }
   
   /**
@@ -4479,6 +4537,25 @@ export abstract class Agent {
         toolResult: preview,
         success: true
       })
+    }
+  }
+
+  /** 同批去重后，已显示的结果卡预览跟着改成引用，避免过程里还像灌了两份。 */
+  private refreshToolResultPreview(
+    run: AgentRun,
+    stepCountBefore: number,
+    toolCall: ToolCall,
+    result: ToolResult
+  ): void {
+    if (!result.success || !result.output) return
+    const preview = result.output.length > 200
+      ? result.output.slice(0, 200) + '…'
+      : result.output
+    const card = run.steps.slice(stepCountBefore).find(
+      s => s.type === 'tool_result' && s.toolCallId === toolCall.id
+    )
+    if (card && card.toolResult !== preview) {
+      this.updateStep(card.id, { toolResult: preview })
     }
   }
 

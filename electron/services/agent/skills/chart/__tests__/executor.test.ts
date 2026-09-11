@@ -741,7 +741,7 @@ describe('executeChartTool: render_echarts_option (free path)', () => {
       config
     )
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/option .*required|必填/)
+    expect(result.error).toMatch(/option .*required|必填|二选一|exactly one/)
   })
 
   it('returns friendly error when option string is invalid JSON', async () => {
@@ -792,3 +792,89 @@ describe('executeChartTool: render_echarts_option (free path)', () => {
     }
   })
 })
+
+describe('executeChartTool: file payload', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chart-file-'))
+  const secret = 'SECRET_KLINE_CLOSE_987654'
+  const pieFile = path.join(dataDir, 'pie.json')
+  const klineFile = path.join(dataDir, 'kline.json')
+
+  fs.writeFileSync(pieFile, JSON.stringify([{ name: 'A', value: 30 }, { name: 'B', value: 70 }]))
+  fs.writeFileSync(klineFile, JSON.stringify({
+    categories: ['d1', 'd2'],
+    values: [[100, 110, 95, 115], [110, 108, 90, 120]],
+    note: secret
+  }))
+
+  afterAll(() => {
+    fs.rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  it('data 与 data_file 都空 → 失败', async () => {
+    const { config } = makeExecutor()
+    const result = await executeChartTool(
+      'generate_chart',
+      'pty-1',
+      { type: 'pie' },
+      'xor-empty',
+      {} as Parameters<typeof executeChartTool>[4],
+      config
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/data_file|二选一|exactly one/)
+  })
+
+  it('data 与 data_file 都给 → 失败', async () => {
+    const { config } = makeExecutor()
+    const result = await executeChartTool(
+      'generate_chart',
+      'pty-1',
+      { type: 'pie', data: [{ name: 'A', value: 1 }], data_file: pieFile },
+      'xor-both',
+      {} as Parameters<typeof executeChartTool>[4],
+      config
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/data_file|二选一|exactly one/)
+  })
+
+  it('data_file 画图成功，输出只报路径不带完整数组', async () => {
+    const { config, steps } = makeExecutor()
+    const result = await executeChartTool(
+      'generate_chart',
+      'pty-1',
+      { type: 'pie', data_file: pieFile },
+      'from-file',
+      {} as Parameters<typeof executeChartTool>[4],
+      config
+    )
+    expect(result.success).toBe(true)
+    expect(result.output).toContain('pie.json')
+    expect(result.output).not.toContain('"value":70')
+    const callStep = steps.find(s => s.type === 'tool_call')
+    expect(String(callStep?.toolArgs?.data_file)).toContain('pie.json')
+    expect(callStep?.toolArgs?.data).toBeUndefined()
+  })
+
+  it('inspect_chart_file 只看到字段、条数、路径，看不到完整数组', async () => {
+    const { config } = makeExecutor()
+    const result = await executeChartTool(
+      'inspect_chart_file',
+      'pty-1',
+      { path: klineFile },
+      'inspect-1',
+      {} as Parameters<typeof executeChartTool>[4],
+      config
+    )
+    expect(result.success).toBe(true)
+    expect(result.output).toContain(klineFile)
+    expect(result.output).toContain('categories')
+    expect(result.output).not.toContain(secret)
+    expect(result.output).not.toContain('987654')
+    const parsed = JSON.parse(result.output)
+    expect(parsed.arrayLengths.categories).toBe(2)
+    expect(parsed.arrayLengths.values).toBe(2)
+    expect(parsed.keys).toContain('note')
+  })
+})
+

@@ -527,8 +527,8 @@ export interface ChatWithToolsResult {
 import type { AiModelType, AiProfile, FetchedAiModel } from '@shared/types'
 export type { AiModelType, AiProfile, FetchedAiModel }
 
-/** 用户未指定时的单次输出上限。主流云端模型均不低于此数。 */
-export const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
+export { DEFAULT_MAX_OUTPUT_TOKENS } from './ai-request-budget'
+import { resolveRequestBudget } from './ai-request-budget'
 
 function asPositiveInt(value: unknown): number | undefined {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
@@ -2024,7 +2024,7 @@ export class AiService {
     tools: ToolDefinition[],
     profileId?: string,
     signal?: AbortSignal,
-    options?: { toolChoice?: 'auto' | 'none' }
+    options?: { toolChoice?: 'auto' | 'none'; maxOutputTokens?: number }
   ): Promise<ChatWithToolsResult> {
     const profile = this.getCurrentProfile(profileId)
     if (!profile) {
@@ -2077,7 +2077,7 @@ export class AiService {
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? (options?.toolChoice ?? 'auto') : undefined,
         temperature: resolveTemperature(profile),
-        max_tokens: profile.maxOutputTokens || DEFAULT_MAX_OUTPUT_TOKENS
+        max_tokens: options?.maxOutputTokens ?? resolveRequestBudget(profile).outputTokens
       }
 
       let data: {
@@ -2360,7 +2360,7 @@ export class AiService {
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? 'auto' : undefined,
         temperature: resolveTemperature(profile),
-        max_tokens: profile.maxOutputTokens || DEFAULT_MAX_OUTPUT_TOKENS,
+        max_tokens: resolveRequestBudget(profile).outputTokens,
         stream: true
       }
       if (!isAnthropic) {

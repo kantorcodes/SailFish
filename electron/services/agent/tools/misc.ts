@@ -1415,7 +1415,7 @@ export async function executeSkillTool(
     return executePdfTool(toolName, id, args, toolCallId, config, executor)
   }
 
-  if (toolName === 'generate_chart' || toolName === 'render_echarts_option') {
+  if (toolName === 'generate_chart' || toolName === 'render_echarts_option' || toolName === 'inspect_chart_file') {
     return executeChartTool(toolName, id, args, toolCallId, config, executor)
   }
 

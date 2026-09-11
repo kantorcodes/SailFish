@@ -4,14 +4,26 @@
 
 为 Agent 提供数据可视化能力。输入统一的扁平参数，默认输出**「活图」**（让前端实例化 ECharts 提供 tooltip / dataZoom / legend toggle 等交互，同时带 SVG dataURL 作兜底）或 PNG 位图（`format: 'png'`，服务端 sharp 栅格化，嵌入 Word/PDF/IM 用）。可选保存到 agent-workspace。
 
+> **大数组先文件、后渲染（设计目标，2026-09-11）**：
+>
+> - **问题**：画一年 K 线时，整份数据被复制进对话，改一次样式再搬一遍，对话被撑爆。
+> - **成功标准**：
+>   1. 数据已经在文件里时，画图只报路径。完整数组不进对话。
+>   2. 检查文件只看到字段、条数、路径，看不到整份数组。
+>   3. 内联数据和路径必须二选一：不能两个都空，也不能两个都给。
+> - **关键取舍**：文件只在本机读完再画，交给模型的是「画好了、文件在哪、结构什么样」，不是原文。
+> - **明确不做**：不把文件里的完整数组再写回给它看；不因此改活图、位图、步骤卡片这些已经说好的交付。
+>
+
 底层使用 Apache ECharts v6+ 的服务端 SVG 渲染（`renderer: 'svg', ssr: true`），不依赖 DOM、不依赖 canvas。「活图」走前端 `EChartsCanvas` 组件，把后端 `buildOption` 产出的 ECharts option 直接 `setOption` 到浏览器实例；主题已被 `applyCommon` inline 进 option（backgroundColor / color / textStyle），前后端视觉完全一致。
 
 **画布背景**：`generate_chart` 由 `theme`（默认 light）经 `applyCommon` 注入；`render_echarts_option` 在 option 未设 `backgroundColor` 时，由 `resolveChartBackground` 按 `theme`（默认 light）补预设背景。
 
 ## 工具
 
-- `generate_chart` — 傻瓜路径，结构化 DSL，AI 不用懂 ECharts。参数 `type` + `data` + 可选样式
-- `render_echarts_option` — 高级路径，AI 直接传完整 ECharts option（v6+）。用于 `generate_chart` 表达不出来的场景（sankey/gauge/funnel/graph/dataZoom/visualMap 等）
+- `generate_chart` — 傻瓜路径，结构化 DSL，AI 不用懂 ECharts。参数 `type` + `data`（或文件路径）+ 可选样式
+- `render_echarts_option` — 高级路径，AI 直接传完整 ECharts option（v6+），或只报 option 文件路径。用于 `generate_chart` 表达不出来的场景（sankey/gauge/funnel/graph/dataZoom/visualMap 等）
+- `inspect_chart_file` — 检查本地图表文件的字段、条数和路径，不返回完整数组
 
 两个工具的关系是 **DSL ↔ raw**——90% 高频图用前者（有数据校验和容错），后者是 escape hatch。判断准则在 `tools.ts` 的 `chartSkillContent` 文档里给 AI 写明了。
 

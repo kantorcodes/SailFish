@@ -23,8 +23,9 @@ export type ErrorCategory = 'transient' | 'permission' | 'not_found' | 'timeout'
 
 // 需要进行路径解码的参数名
 export const PATH_PARAM_NAMES = new Set([
-  'path', 'file_path', 'target_path', 'source_path', 
-  'dest_path', 'directory', 'dir', 'folder'
+  'path', 'file_path', 'target_path', 'source_path',
+  'dest_path', 'directory', 'dir', 'folder',
+  'data_file', 'option_file'
 ])
 
 /**

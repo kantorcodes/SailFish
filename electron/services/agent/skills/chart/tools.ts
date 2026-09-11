@@ -15,7 +15,8 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
 ⚠️ AI 重要提示：
 1. 你（AI）**看不到**生成的图——工具返回的图只投递到用户的对话界面，不进入你的视觉上下文（无论 SVG 还是 PNG）。请勿在回复中描述「图里能看到 X 颜色 / Y 区域」等视觉细节，那是脑补；只能描述自己传入工具的数据结构。
 2. 工具返回 success=true 即代表图已渲染、用户已看到，无需再用 browser/截图等方式去"验证"自己生成的图。
-3. 饼图（pie）的 data **必须是顶层数组** [{name,value}, ...]，不要套对象。`,
+3. 饼图（pie）的 data **必须是顶层数组** [{name,value}, ...]，不要套对象。
+4. **大数组先文件、后渲染**：数据已经在文件里时只报 data_file，不要把完整数组贴进 data。data 与 data_file 必须二选一。`,
       parameters: {
         type: 'object',
         properties: {
@@ -26,6 +27,10 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
           },
           title: { type: 'string', description: '图表主标题（可选）' },
           subtitle: { type: 'string', description: '副标题（可选）' },
+          data_file: {
+            type: 'string',
+            description: '本机 JSON 文件的绝对路径。与 data 二选一。大数组必须走这条：完整内容不进对话，工具在本机读完再画。'
+          },
           data: {
             type: 'object',
             description: `图表数据，根据 type 不同格式不同（对象或数组均可）：
@@ -83,7 +88,7 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
             description: '【仅 png 生效】PNG 像素密度倍率（Retina 缩放）。SVG 仍按 width×height 排版（字号/网格不变），但栅格化时按本倍率放大像素，让被 Word/PDF 缩放显示后依旧锐利。默认 2（@2x，足够大多数嵌入场景），打印稿可传 3。范围 1-4，**当 width × ratio 超过 16384 像素时会自动降低 ratio 防爆**（如 width=7680 + ratio=4 会降到 ~2.13）。**重要心智**：要做嵌入，width 选适合字号的逻辑尺寸（580-1000），不要堆到 3000+；像素清晰度交给 pixel_ratio。SVG 格式忽略此参数。'
           }
         },
-        required: ['type', 'data']
+        required: ['type']
       }
     },
     _meta: {
@@ -111,10 +116,15 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
 ⚠️ AI 重要提示：
 1. 你（AI）**看不到**生成的图（同 generate_chart）。success=true 即用户已看到，不要再去"验证"。
 2. 出错时报错信息会原样返回（含 ECharts 路径信息），按提示修改 option 重试即可。
-3. 未在 option 设 \`backgroundColor\` 时，工具按 \`theme\`（默认 light，白底）注入预设背景；dark 风格请设 \`theme: 'dark'\` 或 \`background_color\`，并同步 \`textStyle.color\` 等。`,
+3. 未在 option 设 \`backgroundColor\` 时，工具按 \`theme\`（默认 light，白底）注入预设背景；dark 风格请设 \`theme: 'dark'\` 或 \`background_color\`，并同步 \`textStyle.color\` 等。
+4. **大 option 先文件、后渲染**：option 已在文件里时只报 option_file。option 与 option_file 必须二选一。`,
       parameters: {
         type: 'object',
         properties: {
+          option_file: {
+            type: 'string',
+            description: '本机 JSON 文件的绝对路径，内容是完整 ECharts option。与 option 二选一。'
+          },
           option: {
             type: 'object',
             description: '完整的 ECharts option 对象（v6+ 格式），按 https://echarts.apache.org/zh/option.html 文档结构传。必须包含 series 等业务字段。提示：少数客户端会序列化对象为 JSON 字符串，工具也会自动 parse 容错。'
@@ -151,7 +161,29 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
             description: '【仅 png 生效】PNG 像素密度倍率（Retina 缩放）。SVG 仍按 width×height 排版（字号/网格不变），栅格化时按本倍率放大像素。默认 2（@2x），范围 1-4；width × ratio 超过 16384 像素时自动降低 ratio。SVG 格式忽略此参数。详细心智模型见 generate_chart 文档。'
           }
         },
-        required: ['option']
+        required: []
+      }
+    },
+    _meta: {
+      parallelizable: true,
+    }
+  } as ToolDefinitionWithMeta,
+
+  {
+    type: 'function',
+    function: {
+      name: 'inspect_chart_file',
+      description: `检查本机图表 JSON 文件的结构：字段、条数、路径。不返回完整数组。
+画图前如果只想确认文件长什么样，用这个，不要把整份数据读进对话。`,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: '本机 JSON 文件的绝对路径'
+          }
+        },
+        required: ['path']
       }
     },
     _meta: {
@@ -164,6 +196,12 @@ K 线必须根据市场选择 kline_style：A 股/港股/国内市场用 'cn' (�
 export const chartSkillContent = `## 图表生成技能（chart）
 
 调用 \`generate_chart\` 工具可生成 9 种数据可视化图表，返回 SVG 矢量图给用户看。
+
+### 大数组先文件、后渲染
+
+数据已经在文件里时，只报路径（\`data_file\` / \`option_file\`），不要把完整数组贴进参数。
+检查结构用 \`inspect_chart_file\`，它只回报字段、条数、路径，看不到整份数组。
+\`data\` 与 \`data_file\`（\`option\` 与 \`option_file\`）必须二选一：不能两个都空，也不能两个都给。
 
 ### ⚠️ 关于"谁能看到图"
 

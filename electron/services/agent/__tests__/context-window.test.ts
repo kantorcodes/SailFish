@@ -202,6 +202,52 @@ describe('ContextWindowManager.getContextLength', () => {
     }))
     expect(m.getContextLength()).toBe(128000)
   })
+
+  it('指定 profileId 找不到 → 保守 128000，不借第一个的大窗口', () => {
+    const profiles = [{ id: 'huge', contextLength: 1000000 }] as AiProfile[]
+    const m = new ContextWindowManager(makeDeps({
+      config: { getAiProfiles: () => profiles, getActiveAiProfile: () => 'huge' },
+      getProfileId: () => 'missing'
+    }))
+    expect(m.getContextLength()).toBe(128000)
+    expect(m.getInputLimit()).toBeLessThan(128000)
+  })
+})
+
+describe('ContextWindowManager.getInputLimit / needsRequestCompaction', () => {
+  it('能发的输入先扣输出额度和余量', () => {
+    const m = new ContextWindowManager(makeDeps({
+      config: {
+        getAiProfiles: () => [{ id: 'p1', contextLength: 128000, maxOutputTokens: 8000 } as AiProfile],
+        getActiveAiProfile: () => 'p1'
+      }
+    }))
+    expect(m.getContextLength()).toBe(128000)
+    expect(m.getInputLimit()).toBe(128000 - 8000 - 1024)
+  })
+
+  it('指定配置找不到时按保守窗口估，不按旁边 1M 估', () => {
+    const m = new ContextWindowManager(makeDeps({
+      config: {
+        getAiProfiles: () => [{ id: 'huge', contextLength: 1000000, maxOutputTokens: 4096 } as AiProfile],
+        getActiveAiProfile: () => 'huge'
+      },
+      getProfileId: () => 'gone'
+    }))
+    expect(m.getInputLimit()).toBe(128000 - 32000 - 1024)
+  })
+
+  it('冷启动无真实用量：估出来已经超输入预算 → 需要先压', () => {
+    const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => undefined }))
+    const huge = 'x'.repeat(400_000)
+    const run = makeRun([user(huge), asst(huge)])
+    expect(m.needsRequestCompaction(run)).toBe(true)
+  })
+
+  it('短对话不需要先压', () => {
+    const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => undefined }))
+    expect(m.needsRequestCompaction(makeRun([user('hi')]))).toBe(false)
+  })
 })
 
 // ==================== updatePressure ====================
@@ -576,8 +622,8 @@ describe('ContextWindowManager.shouldProactiveCompress', () => {
   })
 
   it('剩余空间够写小结 → false（常态不动前缀，把缓存吃满）', () => {
-    // contextLength=128000，预留 4000；用了 100000 还剩 28000，远够写小结
-    const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => 100000 }))
+    // 128000 窗口扣掉默认输出后输入预算约 94K；用了 80000 还剩约 14K，够写小结
+    const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => 80000 }))
     const run = makeRun([user('do'), asst('a1')])
     expect(m.shouldProactiveCompress(run)).toBe(false)
   })
@@ -596,10 +642,10 @@ describe('ContextWindowManager.shouldProactiveCompress', () => {
         getAiProfiles: () => [{ id: 'p1', contextLength: 8000 } as AiProfile],
         getActiveAiProfile: () => 'p1'
       },
-      getLastPromptTokens: () => 5000
+      getLastPromptTokens: () => 2000
     }))
     expect(m.getCompactionReserveTokens()).toBe(2000)
-    // 用了 5000 还剩 3000 > 预留 2000 → 不触发（按固定 4000 会误触发）
+    // 输入预算约 4976，用了 2000 还剩约 3K > 预留 2000 → 不触发
     expect(m.shouldProactiveCompress(makeRun([user('do'), asst('a1')]))).toBe(false)
   })
 

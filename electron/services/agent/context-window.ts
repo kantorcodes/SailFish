@@ -13,6 +13,7 @@ import type { AgentRun } from './types'
 import { estimateTextTokens } from './token-estimate'
 import { t } from './i18n'
 import { createLogger } from '../../utils/logger'
+import { resolveRequestBudget } from '../ai-request-budget'
 
 const log = createLogger('ContextWindow')
 
@@ -109,7 +110,7 @@ export class ContextWindowManager {
    * + 压缩指令 + 本轮可能新增的零头。
    *
    * 注意固定前缀(system prompt + 工具 schema)不参与这个判断:剩余空间 =
-   * 窗口 - 已用,前缀多大在两边同时出现、约掉了。压缩「压不压得动」是另一个问题,
+   * 能发的输入 - 已用,前缀多大在两边同时出现、约掉了。压缩「压不压得动」是另一个问题,
    * 由 MIN_PROACTIVE_RANGE_TOKENS 与实效防抖负责。
    */
   static readonly COMPACTION_RESERVE_TOKENS = 4000
@@ -205,27 +206,57 @@ export class ContextWindowManager {
   }
 
   /**
-   * 获取上下文长度(tokens)。profile 解析优先级:
-   * profileId 命中 → active profile → 列表第一个 → 默认 128000。
+   * 这次「能不能发」所对照的配置。
+   * 指定了 id 却找不到 → undefined（保守窗口），不借 active / 第一个的大窗口。
+   * 没指定 id → active → 列表第一个。
    */
-  getContextLength(): number {
+  private getBudgetProfile(): AiProfile | undefined {
     const config = this.deps.config
-    if (!config) return 128000
+    if (!config) return undefined
 
     const profiles = config.getAiProfiles()
-    if (profiles.length === 0) return 128000
+    if (profiles.length === 0) return undefined
 
-    let profile: AiProfile | undefined
     const profileId = this.deps.getProfileId()
     if (profileId) {
-      profile = profiles.find(p => p.id === profileId)
-    }
-    if (!profile) {
-      const activeId = config.getActiveAiProfile()
-      profile = profiles.find(p => p.id === activeId) || profiles[0]
+      return profiles.find(p => p.id === profileId)
     }
 
-    return profile?.contextLength || 128000
+    const activeId = config.getActiveAiProfile()
+    return profiles.find(p => p.id === activeId) || profiles[0]
+  }
+
+  /**
+   * 整窗长度（界面用量、账单对照）。指定配置找不到时按保守 128000，不借旁边那套。
+   */
+  getContextLength(): number {
+    return resolveRequestBudget(this.getBudgetProfile()).contextLength
+  }
+
+  /**
+   * 这次还能发多少输入：整窗先扣输出额度和余量。
+   * 写交接小结时可传入更紧的输出上限。
+   */
+  getInputLimit(outputOverride?: number): number {
+    return resolveRequestBudget(this.getBudgetProfile(), outputOverride).inputLimit
+  }
+
+  /**
+   * 按当前估算，发出去会不会先把输入预算撑破（冷启动无真实用量也算）。
+   */
+  needsRequestCompaction(run: AgentRun, outputOverride?: number): boolean {
+    return this.estimateSendableTokens(run.messages) > this.getInputLimit(outputOverride)
+  }
+
+  /**
+   * 这一次发出去会占多少：有真实锚点跟账单走；冷启动补上 system prompt
+   *（全量估算本来只计消息 + 工具 schema）。
+   */
+  private estimateSendableTokens(messages: AiMessage[]): number {
+    const used = this.estimateCurrentPromptTokens(messages)
+    if (this.deps.getLastPromptTokens() !== undefined) return used
+    const systemTokens = this._lastSystemPromptTokens ?? DEFAULT_SYSTEM_PROMPT_TOKENS
+    return used + systemTokens
   }
 
   /**
@@ -356,14 +387,15 @@ export class ContextWindowManager {
    *   (见 executeLoop catch → ContextWindowManager.isContextLimitError → emergencyCompress)
    */
   updatePressure(run: AgentRun): void {
-    const contextLength = this.getContextLength()
+    const inputLimit = this.getInputLimit()
     const lastPromptTokens = this.deps.getLastPromptTokens()
     const hasRealData = lastPromptTokens !== undefined
     // 压力判断用「真实锚点 + 本轮新增」：ReAct 循环里 tool 结果持续累积,
     // 只看上一轮的锚点会低估,等下一次 API 响应才发现已经撑满。
     const totalTokens = this.estimateCurrentPromptTokens(run.messages)
-    const usagePercent = Math.round((totalTokens / contextLength) * 100)
-    const remaining = Math.max(0, contextLength - totalTokens)
+    // 界面数字仍按整窗（对账单）；激活工具 / 告警按能发的输入，免得栏还很空就已经拦发送
+    const sendUsagePercent = Math.round((totalTokens / inputLimit) * 100)
+    const remaining = Math.max(0, inputLimit - totalTokens)
 
     // 推给 UI 的仍是 API 确认过的原值:界面上的数字必须能对得上账单,
     // 不掺估算（SPEC: 本轮 usage 以 API 为唯一真相源）。
@@ -372,7 +404,7 @@ export class ContextWindowManager {
     }
 
     // 超过阈值时激活上下文管理功能(一旦激活不会关闭,因为压缩后用量可能降低)
-    if (!this._enabled && usagePercent >= ContextWindowManager.THRESHOLD) {
+    if (!this._enabled && sendUsagePercent >= ContextWindowManager.THRESHOLD) {
       this._enabled = true
     }
 
@@ -380,7 +412,7 @@ export class ContextWindowManager {
     // 会破坏 DeepSeek/OpenAI/Anthropic 前缀缓存。上下文压力由下方 85% 警告消息兜底。
 
     // 85%+ 额外注入警告消息(避免重复注入)
-    if (usagePercent >= 85) {
+    if (sendUsagePercent >= 85) {
       const lastMsg = run.messages[run.messages.length - 1]
       const isAlreadyWarned =
         lastMsg?.role === 'user' &&
@@ -391,7 +423,7 @@ export class ContextWindowManager {
         run.messages.push({
           role: 'user',
           content: t('agent.context_pressure_warning', {
-            percentage: usagePercent,
+            percentage: sendUsagePercent,
             remaining: remaining.toLocaleString()
           }),
           _systemInjected: true
@@ -439,9 +471,9 @@ export class ContextWindowManager {
     return { lastUserIndex, toCompress }
   }
 
-  /** 成对保留的历史任务预算：从可用空间（窗口 - 固定前缀）里切。 */
+  /** 成对保留的历史任务预算：从可用空间（能发的输入 - 固定前缀）里切。 */
   getPreservedPairsBudget(): number {
-    const available = Math.max(0, this.getContextLength() - this.getFixedPrefixTokens(this._lastSystemPromptScope))
+    const available = Math.max(0, this.getInputLimit() - this.getFixedPrefixTokens(this._lastSystemPromptScope))
     return Math.floor(available * ContextWindowManager.PRESERVED_PAIRS_RATIO)
   }
 
@@ -664,7 +696,8 @@ export class ContextWindowManager {
     if (this.deps.getLastPromptTokens() === undefined) return false
     // 判断值含本轮新增：锚点只反映上一轮请求的规模，单步塞进一大段 tool 输出时
     // 实际已经装不下了而锚点还停在安全线内——只看锚点会滞后一轮，压缩赶不上超限。
-    const remaining = this.getContextLength() - this.estimateCurrentPromptTokens(run.messages)
+    // 对照能发的输入（已扣输出额度），不要拿整窗当还能塞多少
+    const remaining = this.getInputLimit() - this.estimateCurrentPromptTokens(run.messages)
     return remaining < this.getCompactionReserveTokens()
   }
 
@@ -787,7 +820,7 @@ export class ContextWindowManager {
     run: AgentRun,
     range: { lastUserIndex: number; toCompress: AiMessage[] }
   ): number {
-    const contextLength = this.getContextLength()
+    const inputLimit = this.getInputLimit()
     const recentStart = range.lastUserIndex + 1 + range.toCompress.length
     const recentTokens = this.measureMessages(run, recentStart, run.messages.length)
     const projected =
@@ -795,7 +828,7 @@ export class ContextWindowManager {
       this.getPreservedPairsBudget() +
       ContextWindowManager.COMPACTION_RESERVE_TOKENS +
       recentTokens
-    return projected > contextLength * 0.9 ? 1 : 2
+    return projected > inputLimit * 0.9 ? 1 : 2
   }
 
   /**
@@ -835,8 +868,7 @@ export class ContextWindowManager {
   ): CompressResult | null {
     let result = this.compressWithRange(run, summary, 2, precomputedRange)
     if (result) {
-      const contextLength = this.getContextLength()
-      const afterUsage = this.estimateTotalTokens(run.messages) / contextLength
+      const afterUsage = this.estimateTotalTokens(run.messages) / this.getInputLimit()
       if (afterUsage > 0.9) {
         // 降级到 keepRecent=1 时归档范围比摘要装配时多一组最近轮次（该轮未进摘要但完整在归档里），补说明避免误读
         const result2 = this.compressWithRange(run, summary + '\n\n（注：归档后上下文仍紧张，归档范围扩大为仅保留最近 1 轮；多归档的那一轮未纳入本摘要，但完整内容仍在归档中，可用 recall_compressed 查看。）', 1)
