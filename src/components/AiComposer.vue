@@ -832,10 +832,7 @@ const completeSlash = (def: SlashCommandDef) => {
 }
 
 const applySlashResult = (result: { ok: true; freedTokens: number } | { ok: false; reason: string }) => {
-  if (result.ok) {
-    toast.success(t('ai.slashCompacted', { freed: result.freedTokens.toLocaleString() }))
-    return
-  }
+  if (result.ok) return
   if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning'))
   else if (result.reason === 'failed') toast.error(t('ai.slashCompactFailed'))
   else toast.info(t('ai.slashCompactEmpty'))
@@ -851,7 +848,6 @@ const runSlashCommand = async (def: SlashCommandDef, hint?: string) => {
     return
   }
   isCompacting.value = true
-  toast.info(t('ai.slashCompacting'))
   try {
     applySlashResult(await props.compactContext(hint))
   } catch {

@@ -939,6 +939,14 @@ export class Conversation {
     this._workingContext = messages ? messages.map(m => JSON.parse(JSON.stringify(m))) : undefined
   }
 
+  /** 只追加界面过程（如用户主动交接），不另开一轮、不进工作记忆。 */
+  appendSteps(steps: AgentStep[]): void {
+    const persistable = filterPersistableSteps(steps)
+    if (persistable.length === 0) return
+    this._steps.push(...persistable)
+    this._dirty = true
+  }
+
   /** 从落盘的交接检查点恢复工作上下文，并接上 cache 前缀。 */
   restoreWorkingContext(messages: AiMessage[] | undefined): void {
     if (!messages?.length) return

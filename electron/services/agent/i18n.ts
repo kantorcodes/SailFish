@@ -164,6 +164,8 @@ const translations = {
 
 这一步只写小结，不执行任何操作，因此直接输出正文即可。`,
     'agent.compress_summary_user_hint': '用户补充，写小结时请看见：{hint}',
+    'agent.compact_in_progress': '正在压缩上下文',
+    'agent.compact_tool_step': '压缩上下文',
     'agent.images_attached': '[系统：用户在本消息中附带了 {count} 张图片，图片已通过多模态格式发送给视觉模型，无需使用 read_file 读取。{paths}如果你确实看到了图像内容，请直接分析；如果你看到的是空白/无法理解的内容，请如实告知用户图片未送达，不要凭上下文猜测图片内容。]',
     'agent.images_attached_paths': '\n磁盘路径：{paths}\n要把图写入文档、另存或继续处理时，直接使用这些路径。\n',
     'agent.image_from_tool': '[系统：工具读取了图片并已通过多模态格式发送给视觉模型。如果你确实看到了图像内容，请直接分析；如果看到的是空白/无法理解的内容，请如实告知，不要凭上下文猜测图片内容。]',
@@ -1752,6 +1754,8 @@ Write down what you judge you will need later and cannot infer from what is pres
 
 This step only writes the summary and performs no action, so just output the text.`,
     'agent.compress_summary_user_hint': 'User note — take this into account when writing the summary: {hint}',
+    'agent.compact_in_progress': 'Compressing context',
+    'agent.compact_tool_step': 'Compress context',
     'agent.images_attached': '[System: User attached {count} image(s) in this message. The images have been sent to the vision model in multimodal format — no need to use read_file. {paths}If you can actually see the image content, analyze it directly. If you see only blank/unintelligible content, tell the user honestly that the image did not reach you. Do NOT guess the image content from context.]',
     'agent.images_attached_paths': '\nDisk path: {paths}\nTo write the image into a document, save it, or process it further, use these paths directly.\n',
     'agent.image_from_tool': '[System: A tool read an image and sent it to the vision model in multimodal format. If you can actually see the image content, analyze it directly. If you see only blank/unintelligible content, tell the user honestly. Do NOT guess the image content from context.]',

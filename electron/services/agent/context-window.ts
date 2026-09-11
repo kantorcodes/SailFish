@@ -405,20 +405,16 @@ export class ContextWindowManager {
    * assistant 轮次之外的早期消息。proactive 的摘要装配与 compress 共用此计算，
    * 保证「摘要覆盖的消息」与「实际归档的消息」一致。
    */
-  private findCompressibleRange(run: AgentRun, keepRecent: number): { lastUserIndex: number; toCompress: AiMessage[] } | null {
-    // 找到当前任务的起点：最后一条**用户真正说的话**。
-    //
-    // 系统注入的那些（用量告警、压缩完成通知）借用 user 角色发给模型，但不是用户
-    // 的请求，不能当任务边界——否则压过一次之后，注入的那条通知会顶替真正的请求
-    // 成为「当前任务」，真实请求被当成历史，切分整个错位。
-    // 判定看 _systemInjected 标志，不看文案：文案会随语言和措辞变，标志不会。
-    let lastUserIndex = -1
-    for (let i = run.messages.length - 1; i >= 0; i--) {
-      if (run.messages[i].role === 'user' && !run.messages[i]._systemInjected) {
-        lastUserIndex = i
-        break
-      }
+  /** 最后一条用户真正说的话。系统注入的 user（用量告警等）不算任务边界。 */
+  private findLastRealUserIndex(messages: AiMessage[]): number {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user' && !messages[i]._systemInjected) return i
     }
+    return -1
+  }
+
+  private findCompressibleRange(run: AgentRun, keepRecent: number): { lastUserIndex: number; toCompress: AiMessage[] } | null {
+    const lastUserIndex = this.findLastRealUserIndex(run.messages)
 
     if (lastUserIndex === -1) return null
 
@@ -574,6 +570,8 @@ export class ContextWindowManager {
       .slice(0, lastUserIndex)
       .filter((m, i) => m.role !== 'system' && !keptIndices.has(i))
 
+    if (toCompress.length === 0 && historyArchived.length === 0) return null
+
     // 归档原始消息(深拷贝,防止后续 run.messages 修改影响归档)
     run.compressedArchives.push({
       id: archiveId,
@@ -715,33 +713,58 @@ export class ContextWindowManager {
 
   /**
    * 用户主动压缩：不看窗口是否快满，也不吃「上次压不动」的停手。
-   * 仍拒绝空结构 / 范围太小（写交接会亏本）——那种情况调用方应告诉用户没什么可压。
+   * 有用户原话就写交接；空对话才空手返回。
    */
   async userCompress(run: AgentRun, opts?: { userHint?: string }): Promise<CompressResult | null> {
-    return this.compressByHandoff(run, opts)
+    const lastUserIndex = this.findLastRealUserIndex(run.messages)
+    if (lastUserIndex === -1) return null
+    const range2 = this.findCompressibleRange(run, 2)
+    const range1 = this.findCompressibleRange(run, 1)
+    const range = range2 ?? range1 ?? { lastUserIndex, toCompress: [] as AiMessage[] }
+    const keepRecent = range2 ? this.decideKeepRecent(run, range2) : 1
+    return this.compressByHandoff(run, {
+      userHint: opts?.userHint,
+      plan: { keepRecent, range },
+      skipMinRange: true
+    })
   }
 
-  private async compressByHandoff(run: AgentRun, opts?: { userHint?: string }): Promise<CompressResult | null> {
+  /** 这场里有没有用户真正说过的话。人点名压时只拿这个挡空对话。 */
+  canHandoff(run: AgentRun): boolean {
+    return this.findLastRealUserIndex(run.messages) !== -1
+  }
+
+  private async compressByHandoff(run: AgentRun, opts?: {
+    userHint?: string
+    plan?: { keepRecent: number; range: { lastUserIndex: number; toCompress: AiMessage[] } }
+    skipMinRange?: boolean
+  }): Promise<CompressResult | null> {
     // 可压缩范围只算一次：摘要装配与实际归档必须用同一份消息切片，
     // 否则「摘要覆盖的内容」和「被归档的内容」可能不一致
-    const range = this.findCompressibleRange(run, 2)
+    const range = opts?.plan?.range ?? this.findCompressibleRange(run, 2)
     if (!range) return null
-    // 范围太小压缩是负收益（AI 小结 + 归档包装比原文还长），跳过；
-    // 不算"压不动"，等后续轮次积累更多内容仍可触发
-    const minRange = this.deps.minProactiveRangeTokens ?? ContextWindowManager.MIN_PROACTIVE_RANGE_TOKENS
-    // 待归档这段有多大：优先用 API 报告过的真实读数（相邻两次用量相减），
-    // 没有才估算。压之前就知道压不动，就不该发那次写交接的调用——那是纯浪费。
-    const rangeStart = range.lastUserIndex + 1
-    const rangeTokens = this.measureMessages(run, rangeStart, rangeStart + range.toCompress.length)
-    if (rangeTokens < minRange) {
-      log.info(`Handoff compress skipped: compressible range too small (~${rangeTokens} tokens < ${minRange})`)
-      return null
+    // 自动压：范围太小是负收益，跳过，不算"压不动"。人点名则不拦。
+    if (!opts?.skipMinRange) {
+      const minRange = this.deps.minProactiveRangeTokens ?? ContextWindowManager.MIN_PROACTIVE_RANGE_TOKENS
+      const rangeTokens = this.measureMessages(
+        run,
+        range.lastUserIndex + 1,
+        range.lastUserIndex + 1 + range.toCompress.length
+      )
+      if (rangeTokens < minRange) {
+        log.info(`Handoff compress skipped: compressible range too small (~${rangeTokens} tokens < ${minRange})`)
+        return null
+      }
     }
     // 保留几轮必须在写小结**之前**定下来：提示词要如实告诉模型压完还能看到几轮，
     // 模型据此判断哪些不必重复写。若沿用「先按 2 轮压、发现还紧张再降到 1 轮」，
     // 承诺就与实际不符，模型以为还看得见而省略的内容会真的丢掉。
-    const keepRecent = this.decideKeepRecent(run, range)
-    const effectiveRange = keepRecent === 2 ? range : this.findCompressibleRange(run, keepRecent)
+    const keepRecent = opts?.plan?.keepRecent ?? this.decideKeepRecent(run, range)
+    const effectiveRange = opts?.plan
+      ? range
+      : keepRecent === 2
+        ? range
+        : this.findCompressibleRange(run, keepRecent)
     if (!effectiveRange) return null
 
     const summary = await this.buildProactiveSummary(run.messages, keepRecent, opts?.userHint)

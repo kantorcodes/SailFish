@@ -1070,6 +1070,12 @@ export function useAgentMode(
       } else if (step.type !== 'confirm') {
         if (currentGroup) {
           currentGroup.steps.push(step)
+        } else if (
+          groups.length > 0 &&
+          (step.type === 'tool_call' || step.type === 'tool_result' || step.type === 'thinking')
+        ) {
+          // 做完之后的主动交接：挂回上一场任务的过程，不另开一条对话
+          groups[groups.length - 1].steps.push(step)
         } else {
           orphanedStepCount++
         }

@@ -5,6 +5,82 @@
 import { t } from '../i18n'
 import type { ToolExecutorConfig, ToolResult } from './types'
 import type { CompressionLevel } from '../context-builder'
+import type { AgentStep } from '@shared/types'
+import type { CompressResult } from '../context-window'
+
+type CompactStepSink = {
+  addStep: (step: Partial<AgentStep>) => AgentStep
+  updateStep: (stepId: string, updates: Partial<AgentStep>) => void
+  removeStep: (stepId: string) => void
+}
+
+export function beginUserCompactSteps(sink: CompactStepSink, hint?: string): {
+  thinkingId: string
+  toolStepId: string
+} {
+  const thinking = sink.addStep({
+    type: 'thinking',
+    content: t('agent.compact_in_progress'),
+    isStreaming: true
+  })
+  const toolCallId = `compact_tool_${Date.now()}`
+  const tool = sink.addStep({
+    id: toolCallId,
+    type: 'tool_call',
+    content: t('agent.compact_tool_step'),
+    toolName: 'compress_context',
+    toolCallId,
+    toolArgs: hint ? { user_hint: hint } : {},
+    riskLevel: 'safe'
+  })
+  return { thinkingId: thinking.id, toolStepId: tool.id }
+}
+
+export function finishUserCompactSteps(
+  sink: CompactStepSink,
+  ids: { thinkingId: string; toolStepId: string },
+  result: CompressResult
+): void {
+  sink.removeStep(ids.thinkingId)
+  const output = t('context_tool.compress_success', {
+    before: result.beforeTokens.toLocaleString(),
+    after: result.afterTokens.toLocaleString(),
+    freed: result.freedTokens.toLocaleString(),
+    archiveId: result.archiveId
+  })
+  sink.updateStep(ids.toolStepId, {
+    success: true,
+    toolResult: output
+  })
+  sink.addStep({
+    type: 'tool_result',
+    content: output,
+    toolName: 'compress_context',
+    toolCallId: ids.toolStepId,
+    toolResult: output,
+    success: true
+  })
+}
+
+export function failUserCompactSteps(
+  sink: CompactStepSink,
+  ids: { thinkingId: string; toolStepId: string },
+  message: string
+): void {
+  sink.removeStep(ids.thinkingId)
+  sink.updateStep(ids.toolStepId, {
+    success: false,
+    toolResult: message
+  })
+  sink.addStep({
+    type: 'tool_result',
+    content: message,
+    toolName: 'compress_context',
+    toolCallId: ids.toolStepId,
+    toolResult: message,
+    success: false
+  })
+}
 
 /**
  * check_context: 查询当前上下文用量

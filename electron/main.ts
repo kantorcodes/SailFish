@@ -4181,7 +4181,7 @@ ipcMain.handle('agent:abort', async (_event, ptyId: string) => {
   return agentService.abort(ptyId)
 })
 
-ipcMain.handle('agent:compactContext', async (_event, params: {
+ipcMain.handle('agent:compactContext', async (event, params: {
   agentKey: string
   sessionId?: string
   sessionStartTime?: number
@@ -4190,7 +4190,34 @@ ipcMain.handle('agent:compactContext', async (_event, params: {
   hint?: string
 }) => {
   const { agentService } = await rt()
-  return agentService.compactContext(params)
+  const { agentKey } = params
+  return agentService.compactContext({
+    ...params,
+    callbacks: {
+      onStep: (_runId, step) => {
+        if (!event.sender.isDestroyed()) {
+          const serializedStep = serializeAgentStepForIpc(step)
+          if (serializedStep) {
+            event.sender.send('agent:step', { agentId: agentKey, ptyId: agentKey, step: serializedStep })
+          }
+        }
+      },
+      onStepRemoved: (_runId, stepId) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('agent:stepRemoved', { agentId: agentKey, ptyId: agentKey, stepId })
+        }
+      },
+      onContextBar: (_runId, contextBar) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('agent:contextBar', {
+            agentId: agentKey,
+            ptyId: agentKey,
+            contextBar: JSON.parse(JSON.stringify(contextBar)),
+          })
+        }
+      },
+    },
+  })
 })
 
 ipcMain.handle('agent:clearHistory', async (_event, ptyId: string) => {

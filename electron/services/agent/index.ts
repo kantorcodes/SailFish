@@ -716,6 +716,7 @@ export class AgentService {
     terminalType: TerminalType
     sshHost?: string
     hint?: string
+    callbacks?: AgentCallbacks
   }): Promise<CompactContextResult> {
     const agent = this.getOrCreateAgent(params.agentKey)
     return agent.compactContext({
@@ -723,7 +724,8 @@ export class AgentService {
       sessionStartTime: params.sessionStartTime,
       terminalType: params.terminalType,
       sshHost: params.sshHost,
-      hint: params.hint
+      hint: params.hint,
+      callbacks: params.callbacks
     })
   }
     

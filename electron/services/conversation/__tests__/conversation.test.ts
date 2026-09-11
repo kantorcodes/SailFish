@@ -396,4 +396,28 @@ describe('Conversation 聚合根（领域模型）', () => {
     expect(conv.terminalType).toBe('ssh')
     expect(conv.sshHost).toBe('h1')
   })
+
+  it('appendSteps：只追加过程，不另开一轮', () => {
+    const conv = Conversation.create({ agentKey: 'tab-1', terminalType: 'local' })
+    conv.commitRun({
+      runId: 'run1',
+      userRequest: '写文档',
+      steps: [userStep('写文档'), finalStep('好')],
+      taskMessageLog: [{ role: 'user', content: '写文档' }],
+      runMessages: [{ role: 'user', content: '写文档' }],
+      taskStatus: 'success',
+      result: '好'
+    })
+    const beforeMessages = conv.messages.length
+    conv.appendSteps([{
+      id: 'compact_1',
+      type: 'tool_call',
+      content: '交接上下文',
+      toolName: 'compress_context',
+      timestamp: Date.now()
+    }])
+    expect(conv.steps.some(s => s.id === 'compact_1')).toBe(true)
+    expect(conv.messages.length).toBe(beforeMessages)
+    expect(conv.toRecord()!.steps.some(s => s.id === 'compact_1')).toBe(true)
+  })
 })

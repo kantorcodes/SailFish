@@ -40,6 +40,7 @@ import { TaskMemoryStore } from './task-memory'
 import { Conversation, conversationPolicy } from '../conversation'
 import { generateConversationTitle, shouldRefreshConversationTitle } from '../conversation/title-generator'
 import { ContextWindowManager } from './context-window'
+import { beginUserCompactSteps, failUserCompactSteps, finishUserCompactSteps } from './tools/context'
 import { SUMMARY_OUTPUT_BUDGET_CHARS } from './compression-summary'
 import { resolveBudgetProfileId, shouldSkipCachePathForVision } from './vision-routing'
 import {
@@ -948,7 +949,7 @@ export abstract class Agent {
 
   /**
    * 用户主动交接：压缩工作窗口。不当成一轮对话。
-   * 正在跑时拒绝；几乎没内容可压时返回 empty。
+   * 正在跑时拒绝；空对话返回 empty。
    */
   async compactContext(opts: {
     sessionId?: string
@@ -956,6 +957,7 @@ export abstract class Agent {
     terminalType: TerminalType
     sshHost?: string
     hint?: string
+    callbacks?: AgentCallbacks
   }): Promise<CompactContextResult> {
     if (this.isRunning()) return { ok: false, reason: 'running' }
 
@@ -972,7 +974,7 @@ export abstract class Agent {
       originalUserRequest: '',
       messages: source.map(m => ({ ...m })),
       steps: [],
-      isRunning: false,
+      isRunning: true,
       aborted: false,
       pendingUserMessages: [],
       config: { ...DEFAULT_AGENT_CONFIG },
@@ -989,28 +991,60 @@ export abstract class Agent {
       taskMessageLog: []
     }
 
+    if (!this._contextWindow.canHandoff(run)) return { ok: false, reason: 'empty' }
+
+    const previousCallbacks = this.callbacks
+    if (opts.callbacks) this.callbacks = opts.callbacks
+    this.currentRun = run
+
     const hint = opts.hint?.trim()
-    const result = await this._contextWindow.userCompress(run, hint ? { userHint: hint } : undefined)
-    if (!result || result.freedTokens <= 0) return { ok: false, reason: 'empty' }
-
-    conv.setWorkingContext(run.messages)
-    conv.setCachePrefix(run.messages)
-    this.saveSessionToHistory()
-
-    const afterTokens = this._contextWindow.estimateCurrentPromptTokens(run.messages)
-    const bar: AgentContextBar = {
-      ...this._contextBar,
-      contextTokens: afterTokens
+    const sink = {
+      addStep: (step: Partial<AgentStep>) => this.addStep(step),
+      updateStep: (stepId: string, updates: Partial<AgentStep>) => this.updateStep(stepId, updates),
+      removeStep: (stepId: string) => this.removeStep(stepId)
     }
-    this.applyProfileFieldsToContextBar(bar)
-    this.setContextBar(bar)
+    const compactIds = beginUserCompactSteps(sink, hint || undefined)
 
-    log.info(`User compact: freed ${result.freedTokens} tokens (${result.beforeTokens} → ${result.afterTokens})`)
-    return {
-      ok: true,
-      freedTokens: result.freedTokens,
-      beforeTokens: result.beforeTokens,
-      afterTokens: result.afterTokens
+    try {
+      const result = await this._contextWindow.userCompress(run, hint ? { userHint: hint } : undefined)
+      if (!result) {
+        sink.removeStep(compactIds.thinkingId)
+        sink.removeStep(compactIds.toolStepId)
+        return { ok: false, reason: 'empty' }
+      }
+
+      finishUserCompactSteps(sink, compactIds, result)
+      conv.setWorkingContext(run.messages)
+      conv.setCachePrefix(run.messages)
+      conv.appendSteps(run.steps)
+      this.saveSessionToHistory()
+
+      const afterTokens = this._contextWindow.estimateCurrentPromptTokens(run.messages)
+      const bar: AgentContextBar = {
+        ...this._contextBar,
+        contextTokens: afterTokens
+      }
+      this.applyProfileFieldsToContextBar(bar)
+      this.setContextBar(bar)
+
+      log.info(`User compact: freed ${result.freedTokens} tokens (${result.beforeTokens} → ${result.afterTokens})`)
+      return {
+        ok: true,
+        freedTokens: result.freedTokens,
+        beforeTokens: result.beforeTokens,
+        afterTokens: result.afterTokens
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      failUserCompactSteps(sink, compactIds, message)
+      conv.appendSteps(run.steps)
+      this.saveSessionToHistory()
+      log.error('User compact failed:', err)
+      return { ok: false, reason: 'failed' }
+    } finally {
+      run.isRunning = false
+      this.currentRun = undefined
+      this.callbacks = previousCallbacks
     }
   }
 

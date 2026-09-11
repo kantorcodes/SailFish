@@ -1128,8 +1128,8 @@ describe('ContextWindowManager.userCompress', () => {
     expect(await m.userCompress(run)).not.toBeNull()
   })
 
-  it('范围太小仍跳过，不写交接', async () => {
-    const summarize = vi.fn()
+  it('人点名时范围小也写交接，不先自己卡掉', async () => {
+    const summarize = vi.fn().mockResolvedValue('小结')
     const m = new ContextWindowManager(makeDeps({
       minProactiveRangeTokens: 3000,
       summarizeMessages: summarize
@@ -1140,8 +1140,8 @@ describe('ContextWindowManager.userCompress', () => {
       asst('a2', [tc('c2', 'bar')]), tool('c2', 'r2'),
       asst('a3', [tc('c3', 'baz')]), tool('c3', 'r3')
     ])
-    expect(await m.userCompress(run)).toBeNull()
-    expect(summarize).not.toHaveBeenCalled()
+    expect(await m.userCompress(run)).not.toBeNull()
+    expect(summarize).toHaveBeenCalled()
   })
 
   it('把用户补充交给写小结', async () => {
@@ -1151,5 +1151,54 @@ describe('ContextWindowManager.userCompress', () => {
     expect(summarize).toHaveBeenCalledWith(expect.objectContaining({
       userHint: '重点留部署步骤'
     }))
+  })
+
+  it('一场做完（工具 + 收尾）也能压，不要求再留两轮', async () => {
+    const m = new ContextWindowManager(makeDeps())
+    const run = makeRun([
+      user('写方案'),
+      asst('', [tc('c1', 'write_text_file')]), tool('c1', 'x'.repeat(4000)),
+      asst('方案写好了')
+    ])
+    expect(m.canHandoff(run)).toBe(true)
+    const result = await m.userCompress(run)
+    expect(result).not.toBeNull()
+    expect(result!.freedTokens).toBeGreaterThan(0)
+  })
+
+  it('短问答人点名了也写交接', async () => {
+    const summarize = vi.fn().mockResolvedValue('小结')
+    const m = new ContextWindowManager(makeDeps({
+      minProactiveRangeTokens: 3000,
+      summarizeMessages: summarize
+    }))
+    const run = makeRun([
+      user('现在几点'),
+      asst('下午两点')
+    ])
+    expect(m.canHandoff(run)).toBe(true)
+    expect(await m.userCompress(run)).not.toBeNull()
+    expect(summarize).toHaveBeenCalled()
+  })
+
+  it('上一场做过事、最后只是短收尾，也能压', async () => {
+    const m = new ContextWindowManager(makeDeps())
+    const run = makeRun([
+      user('查磁盘'),
+      asst('', [tc('c1', 'exec')]), tool('c1', 'x'.repeat(4000)),
+      asst('根分区 80%'),
+      user('好的就这样')
+    ])
+    expect(m.canHandoff(run)).toBe(true)
+    expect(await m.userCompress(run)).not.toBeNull()
+  })
+
+  it('canHandoff：有用户原话为真，空对话为假', () => {
+    const m = new ContextWindowManager(makeDeps({ minProactiveRangeTokens: 3000 }))
+    expect(m.canHandoff(makeRun([]))).toBe(false)
+    expect(m.canHandoff(makeRun([
+      user('现在几点'),
+      asst('下午两点')
+    ]))).toBe(true)
   })
 })
