@@ -5,7 +5,7 @@
  * 直接 `new ContextWindowManager(mockDeps)`,无需构造 Agent——这正是抽出的可测性收益。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { ContextWindowManager, type ContextWindowDeps } from '../context-window'
+import { ContextWindowManager, nextCompressedArchiveId, type ContextWindowDeps } from '../context-window'
 import type { AiMessage, ToolCall } from '../../ai.service'
 import type { AgentRun } from '../types'
 import type { AiProfile } from '@shared/types'
@@ -592,6 +592,32 @@ describe('ContextWindowManager.emergencyCompress', () => {
       expect(r2.archiveId).toBe('ca-2')
       expect(run.compressedArchives).toHaveLength(2)
     }
+  })
+
+  it('已有归档时编号接着走，不从 1 重起', () => {
+    const m = new ContextWindowManager(makeDeps())
+    const run = makeRun([
+      user('do'),
+      asst('a1', [tc('c1', 'foo')]), tool('c1', 'r1'),
+      asst('a2', [tc('c2', 'bar')]), tool('c2', 'r2'),
+      asst('a3', [tc('c3', 'baz')]), tool('c3', 'r3'),
+      asst('a4', [tc('c4', 'qux')]), tool('c4', 'r4'),
+      asst('a5', [tc('c5', 'extra')]), tool('c5', 'r5')
+    ], {
+      compressedArchives: [
+        { id: 'ca-1', messages: [user('old')], summary: '旧归档', timestamp: 1 }
+      ]
+    })
+    const result = m.emergencyCompress(run)
+    expect(result).not.toBeNull()
+    expect(result!.archiveId).toBe('ca-2')
+    expect(run.compressedArchives?.map(a => a.id)).toEqual(['ca-1', 'ca-2'])
+  })
+
+  it('编号看已有最大号，不按条数，缺号也不会撞车', () => {
+    expect(nextCompressedArchiveId([])).toBe('ca-1')
+    expect(nextCompressedArchiveId([{ id: 'ca-1' }, { id: 'ca-2' }])).toBe('ca-3')
+    expect(nextCompressedArchiveId([{ id: 'ca-1' }, { id: 'ca-3' }])).toBe('ca-4')
   })
 
   it('摘要消息含 recall_compressed 指引（让 AI 知道可以找回归档）', () => {

@@ -115,6 +115,47 @@ describe('Conversation 聚合根（领域模型）', () => {
     expect(restored.toRecord({ terminalId: 'pty-1' })!.workingContext).toEqual(handoff)
   })
 
+  it('压缩归档跟这场对话一起留下：第二次编号接着走，reset 清掉，重开还能按编号取回', () => {
+    const conv = Conversation.create(
+      { agentKey: 'tab-ca', terminalType: 'assistant' },
+      { id: 'sess_ca', createdAt: 1000 }
+    )
+    conv.commitRun({
+      runId: 'run1',
+      userRequest: '写周报',
+      steps: [userStep('写周报'), finalStep('已写好')],
+      taskMessageLog: [{ role: 'user', content: '写周报' }],
+      runMessages: [{ role: 'user', content: '写周报' }],
+      taskStatus: 'success',
+      result: '已写好',
+    })
+    conv.adoptCompressedArchives([
+      { id: 'ca-1', messages: [{ role: 'user', content: '第一段原文' }], summary: '第一段', timestamp: 11 }
+    ])
+    conv.adoptCompressedArchives([
+      { id: 'ca-1', messages: [{ role: 'user', content: '不该覆盖' }], summary: '假的', timestamp: 12 },
+      { id: 'ca-2', messages: [{ role: 'assistant', content: '第二段原文' }], summary: '第二段', timestamp: 13 }
+    ])
+
+    const archives = conv.getCompressedArchives()
+    expect(archives.map(a => a.id)).toEqual(['ca-1', 'ca-2'])
+    expect(archives[0].messages).toEqual([{ role: 'user', content: '第一段原文' }])
+    expect(conv.getCompressedArchive('ca-1')).toEqual([{ role: 'user', content: '第一段原文' }])
+    expect(conv.getCompressedArchive('ca-9')).toBeNull()
+
+    const record = conv.toRecord({ terminalId: 'pty-1' })!
+    expect(record.compressedArchives?.map(a => a.id)).toEqual(['ca-1', 'ca-2'])
+
+    const restored = Conversation.fromRecord(record)
+    expect(restored.getCompressedArchives().map(a => a.id)).toEqual(['ca-1', 'ca-2'])
+    expect(restored.getCompressedArchive('ca-2')).toEqual([{ role: 'assistant', content: '第二段原文' }])
+    expect(restored.toRecord({ terminalId: 'pty-1' })!.compressedArchives?.map(a => a.id)).toEqual(['ca-1', 'ca-2'])
+
+    conv.reset()
+    expect(conv.getCompressedArchives()).toEqual([])
+    expect(conv.getCompressedArchive('ca-1')).toBeNull()
+  })
+
   it('toRecord：空会话（无 user_task）返回 null', () => {
     const conv = Conversation.create({ agentKey: 'tab-1', terminalType: 'local' })
     expect(conv.toRecord()).toBeNull()
@@ -287,6 +328,10 @@ describe('Conversation 聚合根（领域模型）', () => {
     })
     expect(conv.taskMemory.getTaskCount()).toBe(1)
     expect(conv.messages.length).toBeGreaterThan(0)
+    conv.adoptCompressedArchives([
+      { id: 'ca-1', messages: [{ role: 'user', content: '原文' }], summary: '小结', timestamp: 1 }
+    ])
+    expect(conv.getCompressedArchives()).toHaveLength(1)
 
     conv.reset()
     expect(conv.taskMemory.getTaskCount()).toBe(0)
@@ -294,6 +339,7 @@ describe('Conversation 聚合根（领域模型）', () => {
     expect(conv.steps.length).toBe(0)
     expect(conv.getCachePrefix()).toBeUndefined()
     expect(conv.tokenUsage).toBeUndefined()
+    expect(conv.getCompressedArchives()).toEqual([])
   })
 
   it('用量序列：相邻两次上报相减 = 那段消息的真实规模', () => {

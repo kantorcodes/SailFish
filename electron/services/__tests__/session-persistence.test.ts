@@ -92,6 +92,32 @@ describe('session-persistence incremental checkpoint', () => {
     ])
   })
 
+  it('压缩归档跟对话一起记住，重开还能按编号取回', () => {
+    const record = makeRecord({
+      steps: [makeStep('s1')],
+      messages: [{ role: 'user', content: 'hi' }],
+      compressedArchives: [
+        {
+          id: 'ca-1',
+          messages: [{ role: 'user', content: '被压下去的原文' }],
+          summary: '第一段',
+          timestamp: 42,
+        },
+      ],
+    })
+    saveSessionRecord(agentDir, record)
+
+    const loaded = readSessionRecord(agentDir, '2026-07-13', record.id)
+    expect(loaded?.compressedArchives).toEqual([
+      {
+        id: 'ca-1',
+        messages: [{ role: 'user', content: '被压下去的原文' }],
+        summary: '第一段',
+        timestamp: 42,
+      },
+    ])
+  })
+
   it('这场对话还开着的技能跟卸掉的清单会写进 meta，重开读得回来', () => {
     const record = makeRecord({
       steps: [makeStep('s1')],

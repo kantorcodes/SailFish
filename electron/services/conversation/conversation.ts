@@ -116,6 +116,13 @@ export class Conversation {
   /** 这场做过上下文交接后，重开应接着用的工作上下文（与 UI transcript 的完整 messages 分开） */
   private _workingContext?: AiMessage[]
   private _hasHandoff = false
+  /** 这场压下去的原文归档，跟交接一起留下，供按编号取回 */
+  private _compressedArchives: Array<{
+    id: string
+    messages: AiMessage[]
+    summary: string
+    timestamp: number
+  }> = []
 
   /** 侧栏展示标题（LLM / 手动）；缺省则 UI 用 userTask */
   private _title?: string
@@ -231,6 +238,7 @@ export class Conversation {
 
     this.setRestoredTranscript(record.messages as AiMessage[] | undefined, record.steps)
     this.restoreWorkingContext(record.workingContext as AiMessage[] | undefined)
+    this.adoptCompressedArchives(record.compressedArchives as typeof this._compressedArchives | undefined)
     const title = record.title?.trim()
     if (title) this._title = title
     if (record.titleLocked) this._titleLocked = true
@@ -291,7 +299,8 @@ export class Conversation {
       tokenUsage: this._tokenUsage,
       ...(opts?.loadedSkills ? { loadedSkills: [...opts.loadedSkills] } : {}),
       ...(opts?.userDismissedSkills?.length ? { userDismissedSkills: [...opts.userDismissedSkills] } : {}),
-      ...this.workingContextField()
+      ...this.workingContextField(),
+      ...this.compressedArchivesField()
     }
   }
 
@@ -343,7 +352,8 @@ export class Conversation {
       tokenUsage: checkpointTokenUsage,
       ...(run.loadedSkills ? { loadedSkills: [...run.loadedSkills] } : {}),
       ...(run.userDismissedSkills?.length ? { userDismissedSkills: [...run.userDismissedSkills] } : {}),
-      ...this.workingContextField()
+      ...this.workingContextField(),
+      ...this.compressedArchivesField()
     }
   }
 
@@ -759,7 +769,10 @@ export class Conversation {
       duration: 0,
       status: 'completed',
       ...(Array.isArray(source.loadedSkills) ? { loadedSkills: [...source.loadedSkills] } : {}),
-      ...(Array.isArray(source.userDismissedSkills) ? { userDismissedSkills: [...source.userDismissedSkills] } : {})
+      ...(Array.isArray(source.userDismissedSkills) ? { userDismissedSkills: [...source.userDismissedSkills] } : {}),
+      ...(Array.isArray(source.compressedArchives) ? {
+        compressedArchives: source.compressedArchives.map(a => JSON.parse(JSON.stringify(a)))
+      } : {})
     }
   }
 
@@ -962,6 +975,54 @@ export class Conversation {
     return { workingContext: src.map(m => JSON.parse(JSON.stringify(m))) }
   }
 
+  getCompressedArchives(): Array<{
+    id: string
+    messages: AiMessage[]
+    summary: string
+    timestamp: number
+  }> {
+    return this._compressedArchives.map(a => ({
+      id: a.id,
+      messages: JSON.parse(JSON.stringify(a.messages)),
+      summary: a.summary,
+      timestamp: a.timestamp
+    }))
+  }
+
+  getCompressedArchive(archiveId: string): AiMessage[] | null {
+    const archive = this._compressedArchives.find(a => a.id === archiveId)
+    return archive ? JSON.parse(JSON.stringify(archive.messages)) : null
+  }
+
+  /** 按 id 追加，已有的不覆盖。压完或从记录恢复时把原文归档收进这场对话。 */
+  adoptCompressedArchives(archives?: Array<{
+    id: string
+    messages: AiMessage[]
+    summary: string
+    timestamp: number
+  }>): void {
+    if (!archives?.length) return
+    const seen = new Set(this._compressedArchives.map(a => a.id))
+    let added = false
+    for (const archive of archives) {
+      if (!archive?.id || seen.has(archive.id)) continue
+      seen.add(archive.id)
+      this._compressedArchives.push({
+        id: archive.id,
+        messages: JSON.parse(JSON.stringify(archive.messages ?? [])),
+        summary: archive.summary ?? '',
+        timestamp: archive.timestamp ?? Date.now()
+      })
+      added = true
+    }
+    if (added) this._dirty = true
+  }
+
+  private compressedArchivesField(): { compressedArchives?: AgentRecord['compressedArchives'] } {
+    if (this._compressedArchives.length === 0) return {}
+    return { compressedArchives: this.getCompressedArchives() }
+  }
+
   // ==================== 会话操作 ====================
 
   /** 会话漫游：仅换接管的 tab/实例（agentKey），形态不变（限同 terminalType，由调用方保证） */
@@ -1014,6 +1075,7 @@ export class Conversation {
     this._cachePrefix = undefined
     this._workingContext = undefined
     this._hasHandoff = false
+    this._compressedArchives = []
     this._tokenUsage = undefined
     this._lastPromptTokens = undefined
     this._lastCacheHitRate = undefined

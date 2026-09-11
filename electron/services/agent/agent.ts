@@ -993,6 +993,7 @@ export abstract class Agent {
       taskMessageLog: []
     }
 
+    this.seedCompressedArchives(run)
     if (!this._contextWindow.canHandoff(run)) return { ok: false, reason: 'empty' }
 
     const previousCallbacks = this.callbacks
@@ -1018,6 +1019,7 @@ export abstract class Agent {
       finishUserCompactSteps(sink, compactIds, result)
       conv.setWorkingContext(run.messages)
       conv.setCachePrefix(run.messages)
+      conv.adoptCompressedArchives(run.compressedArchives)
       conv.appendSteps(run.steps)
       this.saveSessionToHistory()
 
@@ -1039,6 +1041,7 @@ export abstract class Agent {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       failUserCompactSteps(sink, compactIds, message)
+      conv.adoptCompressedArchives(run.compressedArchives)
       conv.appendSteps(run.steps)
       this.saveSessionToHistory()
       log.error('User compact failed:', err)
@@ -1468,6 +1471,7 @@ export abstract class Agent {
     // 历史恢复之后再落盘：第一条用户消息确定即进历史，侧栏立刻能看到，崩溃也不丢整段对话。
     // 必须在 restore 之后写——否则会把自己刚写下的检查点再读回来（工作记忆重复），
     // 续聊还会用只有新消息的残本盖掉旧记录。之后每轮工具调用仍会再写检查点。
+    this.seedCompressedArchives(run)
     this.saveCheckpoint(run)
 
     // 历史恢复后发布会话级上下文栏：上轮 API 确认的 token/cache + 本轮拟用 model/limit。
@@ -1574,6 +1578,7 @@ export abstract class Agent {
     // 序号防同毫秒 task id 碰撞），故此处只补 transcript。
     this._conversation?.setRestoredTranscript(record.messages as AiMessage[] | undefined, record.steps)
     this._conversation?.restoreWorkingContext(record.workingContext as AiMessage[] | undefined)
+    this._conversation?.adoptCompressedArchives(record.compressedArchives as AgentRun['compressedArchives'])
 
     // 关切 / 唤醒自己预装技能，不按历史清单恢复。
     const kind = record.kind ?? inferConversationKind(record.agentKey)
@@ -1742,6 +1747,13 @@ export abstract class Agent {
   
   // ==================== 会话持久化 ====================
   
+  /** 这场对话里已有的原文归档种进当前 run，编号接着往下走，取回也能对上。 */
+  private seedCompressedArchives(run: AgentRun): void {
+    const archives = this._conversation?.getCompressedArchives()
+    if (!archives?.length) return
+    run.compressedArchives = archives
+  }
+
   /**
    * 将会话数据保存到 HistoryService。
    * 记录的构建（首个 user_task 标题、taskMemory 末态决定整体状态、steps/messages 序列化、kind/形态/token）
@@ -1783,6 +1795,7 @@ export abstract class Agent {
     if (this._conversation.hasHandoff() && run.messages.length > 0) {
       this._conversation.setWorkingContext(run.messages)
     }
+    this._conversation.adoptCompressedArchives(run.compressedArchives)
     const record = this._conversation.toCheckpointRecord({
       steps: run.steps,
       taskMessageLog: run.taskMessageLog,
@@ -2758,6 +2771,7 @@ export abstract class Agent {
           const compressed = this._contextWindow.emergencyCompress(run)
           if (compressed) {
             this._conversation?.setWorkingContext(run.messages)
+            this._conversation?.adoptCompressedArchives(run.compressedArchives)
             // 仅在真正重试时消耗配额（压缩失败时不消耗，避免下次循环跳过本可救的请求）
             contextOverflowRetryCount++
             log.warn(`Context limit exceeded, auto-compressed (kept recent ${compressed.keepRecent}, freed ${compressed.freedTokens} tokens), retrying`)
@@ -2815,6 +2829,7 @@ export abstract class Agent {
       const compressed = await this._contextWindow.proactiveCompress(run)
       if (compressed) {
         this._conversation?.setWorkingContext(run.messages)
+        this._conversation?.adoptCompressedArchives(run.compressedArchives)
         log.warn(`Proactive compress triggered (lastPromptTokens=${this._lastPromptTokens}, contextLength=${this._contextWindow.getContextLength()}, reserve=${this._contextWindow.getCompactionReserveTokens()}), kept recent ${compressed.keepRecent}, freed ${compressed.freedTokens} tokens`)
         run.messages.push({
           role: 'user',
@@ -2833,6 +2848,7 @@ export abstract class Agent {
       const compressed = this._contextWindow.emergencyCompress(run)
       if (compressed) {
         this._conversation?.setWorkingContext(run.messages)
+        this._conversation?.adoptCompressedArchives(run.compressedArchives)
         log.warn(`Pre-send compact (lastPromptTokens=${this._lastPromptTokens}, inputLimit=${this._contextWindow.getInputLimit()}), kept recent ${compressed.keepRecent}, freed ${compressed.freedTokens} tokens`)
       }
       if (this._contextWindow.needsRequestCompaction(run)) {
@@ -4651,11 +4667,17 @@ export abstract class Agent {
       // 上下文管理
       compressCurrentContext: (summary: string, keepRecent: number) => {
         const result = this._contextWindow.compress(run, summary, keepRecent)
-        if (result) this._conversation?.setWorkingContext(run.messages)
+        if (result) {
+          this._conversation?.setWorkingContext(run.messages)
+          this._conversation?.adoptCompressedArchives(run.compressedArchives)
+        }
         return result
       },
       getCompressedArchives: () => {
-        return (run.compressedArchives || []).map(a => ({
+        const archives = run.compressedArchives?.length
+          ? run.compressedArchives
+          : (this._conversation?.getCompressedArchives() ?? [])
+        return archives.map(a => ({
           id: a.id,
           summary: a.summary,
           messageCount: a.messages.length,
@@ -4664,7 +4686,8 @@ export abstract class Agent {
       },
       getCompressedArchive: (archiveId: string) => {
         const archive = run.compressedArchives?.find(a => a.id === archiveId)
-        return archive ? archive.messages : null
+        if (archive) return archive.messages
+        return this._conversation?.getCompressedArchive(archiveId) ?? null
       },
       historyService: this.services.historyService,
       getAiService: () => this.services.aiService,

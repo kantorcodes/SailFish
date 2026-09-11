@@ -86,6 +86,17 @@ interface TaskPair {
   replyIndex?: number
 }
 
+/** 这场下一个归档编号。看已有最大号，不看条数，避免缺号时撞上旧 ID。 */
+export function nextCompressedArchiveId(archives: Array<{ id: string }>): string {
+  let max = 0
+  for (const archive of archives) {
+    if (!archive.id.startsWith('ca-')) continue
+    const n = Number(archive.id.slice(3))
+    if (Number.isInteger(n) && n > max) max = n
+  }
+  return `ca-${max + 1}`
+}
+
 /** 压缩结果(供 compress_context 工具回报给 AI)。 */
 export interface CompressResult {
   beforeTokens: number
@@ -583,11 +594,11 @@ export class ContextWindowManager {
 
     const beforeTokens = this.estimateTotalTokens(run.messages)
 
-    // 生成归档 ID
+    // 编号按这场已有归档的最大号接着走，不按条数。条数在缺号时会撞上旧 ID。
     if (!run.compressedArchives) {
       run.compressedArchives = []
     }
-    const archiveId = `ca-${run.compressedArchives.length + 1}`
+    const archiveId = nextCompressedArchiveId(run.compressedArchives)
 
     // 段 A：当前任务之前的历史。成对提取「用户原话 + 最终答复」，按预算从近往远
     // 保留，其余（中间过程的 assistant/tool）连同段 B 一起进归档。

@@ -102,6 +102,16 @@ export interface AgentRecord {
     tool_call_id?: string
     hugeOutput?: import('./agent').HugeOutputStub
   }>
+  /**
+   * 这场对话里压下去的原文归档。有交接检查点时跟对话一起留下，重开还能按编号取回。
+   * 字段缺失（老记录 / 没压过）视为没有归档。
+   */
+  compressedArchives?: Array<{
+    id: string
+    messages: NonNullable<AgentRecord['workingContext']>
+    summary: string
+    timestamp: number
+  }>
 }
 
 /** 输入区胶囊用的技能快照（不含外部工具包） */

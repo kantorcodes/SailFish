@@ -302,3 +302,106 @@ describe('端到端：热路径窗口满了仍走已有交接', () => {
     expect(text).not.toContain(HUGE_TOOL)
   })
 })
+
+describe('端到端：/compact 用完即弃的 run 不能把原文归档扔掉', () => {
+  function compressibleRun(messages: AiMessage[]): AgentRun {
+    return {
+      id: 'compact_throwaway',
+      originalUserRequest: '',
+      messages,
+      steps: [],
+      isRunning: false,
+      aborted: false,
+      pendingUserMessages: [],
+      config: {} as AgentRun['config'],
+      context: {} as AgentRun['context'],
+      realtimeOutputBuffer: [],
+      executionPhase: 'idle',
+      taskMessageLog: []
+    } as AgentRun
+  }
+
+  function makeManager(): ContextWindowManager {
+    return new ContextWindowManager({
+      config: {
+        getAiProfiles: () => [{ id: 'p1', contextLength: 8000 } as AiProfile],
+        getActiveAiProfile: () => 'p1'
+      },
+      getProfileId: () => undefined,
+      getLastPromptTokens: () => 7600,
+      getLastCacheHitRate: () => undefined,
+      reportUsage: vi.fn(),
+      minProactiveRangeTokens: 0
+    })
+  }
+
+  function compactableMessages(): AiMessage[] {
+    return [
+      { role: 'user', content: '写一份周报 Word' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: 'c1',
+          type: 'function',
+          function: { name: 'write_text_file', arguments: JSON.stringify({ path: WORD_PATH }) }
+        }]
+      },
+      { role: 'tool', content: `${WORD_BODY}\n${HUGE_TOOL}`, tool_call_id: 'c1' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'c2', type: 'function', function: { name: 'exec', arguments: '{}' } }]
+      },
+      { role: 'tool', content: 'ok', tool_call_id: 'c2' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'c3', type: 'function', function: { name: 'exec', arguments: '{}' } }]
+      },
+      { role: 'tool', content: 'ok2', tool_call_id: 'c3' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'c4', type: 'function', function: { name: 'exec', arguments: '{}' } }]
+      },
+      { role: 'tool', content: 'ok3', tool_call_id: 'c4' },
+      { role: 'assistant', content: `周报写在 ${WORD_PATH}` }
+    ]
+  }
+
+  it('只把小结写回会话、不收归档：重开按编号取就是空的（当初 /compact 的漏）', () => {
+    const conv = writeWordConversation()
+    const run = compressibleRun(compactableMessages())
+    const compressed = makeManager().emergencyCompress(run)
+    expect(compressed).not.toBeNull()
+    expect(compressed!.archiveId).toBe('ca-1')
+    expect(run.compressedArchives?.[0].messages.some(m => flatten([m]).includes(HUGE_TOOL))).toBe(true)
+
+    conv.setWorkingContext(run.messages)
+    const restored = persistRoundTrip(conv)
+    expect(restored.getCompressedArchive('ca-1')).toBeNull()
+  })
+
+  it('小结和归档一起留下：重开能按编号取回，再压是 ca-2', () => {
+    const conv = writeWordConversation()
+    const run = compressibleRun(compactableMessages())
+    const compressed = makeManager().emergencyCompress(run)
+    expect(compressed).not.toBeNull()
+
+    conv.setWorkingContext(run.messages)
+    conv.adoptCompressedArchives(run.compressedArchives)
+    const restored = persistRoundTrip(conv)
+
+    const recalled = restored.getCompressedArchive('ca-1')
+    expect(recalled).not.toBeNull()
+    expect(flatten(recalled!)).toContain(HUGE_TOOL)
+    expect(flatten(recalled!)).toContain(WORD_PATH)
+
+    const next = compressibleRun(restored.getCachePrefix() ?? [...restored.messages])
+    next.compressedArchives = restored.getCompressedArchives()
+    const again = makeManager().emergencyCompress(next)
+    expect(again).not.toBeNull()
+    expect(again!.archiveId).toBe('ca-2')
+  })
+})
