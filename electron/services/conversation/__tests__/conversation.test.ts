@@ -466,4 +466,37 @@ describe('Conversation 聚合根（领域模型）', () => {
     expect(conv.messages.length).toBe(beforeMessages)
     expect(conv.toRecord()!.steps.some(s => s.id === 'compact_1')).toBe(true)
   })
+
+  it('commitTranscriptTurn：人主动压是新的一轮，不改工作上下文', () => {
+    const conv = Conversation.create({ agentKey: 'tab-1', terminalType: 'local' })
+    conv.commitRun({
+      runId: 'run1',
+      userRequest: '写文档',
+      steps: [userStep('写文档'), finalStep('好')],
+      taskMessageLog: [{ role: 'user', content: '写文档' }],
+      runMessages: [{ role: 'user', content: '写文档' }],
+      taskStatus: 'success',
+      result: '好'
+    })
+    const handoff = [{ role: 'assistant' as const, content: '交接小结' }]
+    conv.setWorkingContext(handoff)
+    conv.setCachePrefix(handoff)
+
+    conv.commitTranscriptTurn({
+      runId: 'compact_1',
+      userRequest: '压缩上下文',
+      steps: [
+        userStep('压缩上下文'),
+        { id: 'c1', type: 'tool_call', content: '压缩上下文', timestamp: Date.now() } as AgentStep,
+        finalStep('已压缩')
+      ],
+      taskStatus: 'success',
+      result: '已压缩'
+    })
+
+    expect(conv.steps.some(s => s.content === '压缩上下文' && s.type === 'user_task')).toBe(true)
+    expect(conv.taskMemory.getTask('compact_1')?.userRequest).toBe('压缩上下文')
+    expect(conv.getCachePrefix()).toEqual(handoff)
+    expect(conv.messages.some(m => m.role === 'user' && m.content === '压缩上下文')).toBe(true)
+  })
 })

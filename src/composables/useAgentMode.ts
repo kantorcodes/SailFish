@@ -17,6 +17,7 @@ import { isAssistantConversationSurfaceVisible } from '../utils/agent-tab-ui-met
 import { useTts } from './useTts'
 import { shouldShowToolResultStep } from '../utils/tool-display'
 import { foldProcessSteps, type ProcessFoldView, type ProcessStepRef, type StepPart } from '../utils/process-fold'
+import { groupAgentSteps } from '../utils/agent-task-groups'
 import { estimateMessageStepVirtualSize } from '../utils/thinking-block'
 import { resolveWorkbenchAgentPrompt, resolveWorkbenchKind } from '../workbench'
 import { showConfirm, showAlert } from './useConfirm'
@@ -71,6 +72,8 @@ export interface AgentTaskGroup {
   images?: string[]
   attachments?: AttachmentInfo[]
   steps: AgentStep[]
+  /** 这场已经收场后出现的过程（如人主动压缩），画在收场后面 */
+  afterEndSteps: AgentStep[]
   finalResult?: string
   isCurrentTask: boolean
   isProactive?: boolean
@@ -1021,66 +1024,11 @@ export function useAgentMode(
   // 按任务分组的步骤（每个任务包含：用户任务 + 步骤块 + 最终结果）
   const agentTaskGroups = computed((): AgentTaskGroup[] => {
     const allSteps = agentState.value?.steps || []
-    const groups: AgentTaskGroup[] = []
-    let currentGroup: AgentTaskGroup | null = null
-    let orphanedStepCount = 0
-    // user_task 尚未到达时先到的 user_supplement（准备阶段竞态）
-    let leadingSupplements: AgentStep[] = []
-    
-    for (const step of allSteps) {
-      if (step.type === 'user_task') {
-        const isProactive = step.content === '__proactive__'
-        const isOnboarding = step.content === '__onboarding__'
-        currentGroup = {
-          id: step.id,
-          index: groups.length,
-          userTask: (isProactive || isOnboarding) ? '' : step.content,
-          images: step.images,
-          attachments: step.attachments,
-          steps: [...leadingSupplements],
-          isCurrentTask: false,
-          isProactive,
-          isOnboarding,
-        }
-        leadingSupplements = []
-        groups.push(currentGroup)
-      } else if (step.type === 'final_result') {
-        if (currentGroup) {
-          currentGroup.finalResult = step.content
-          currentGroup = null
-        }
-      } else if (step.type === 'user_supplement' && !currentGroup) {
-        leadingSupplements.push(step)
-      } else if (step.type === 'proactive_notice') {
-        if (currentGroup) {
-          currentGroup.steps.push(step)
-        } else {
-          // 无归属任务时作为独立主动通知（与历史 __proactive__ 分组等价）
-          groups.push({
-            id: step.id,
-            index: groups.length,
-            userTask: '',
-            steps: [],
-            isCurrentTask: false,
-            isProactive: true,
-            isOnboarding: false,
-            finalResult: step.content,
-          })
-        }
-      } else if (step.type !== 'confirm') {
-        if (currentGroup) {
-          currentGroup.steps.push(step)
-        } else if (
-          groups.length > 0 &&
-          (step.type === 'tool_call' || step.type === 'tool_result' || step.type === 'thinking')
-        ) {
-          // 做完之后的主动交接：挂回上一场任务的过程，不另开一条对话
-          groups[groups.length - 1].steps.push(step)
-        } else {
-          orphanedStepCount++
-        }
-      }
-    }
+    const { groups: drafts, orphanedStepCount } = groupAgentSteps(allSteps)
+    const groups: AgentTaskGroup[] = drafts.map(draft => ({
+      ...draft,
+      isCurrentTask: false,
+    }))
 
     // 标记最后一个未完成的任务为当前任务
     if (groups.length > 0) {
@@ -1145,14 +1093,12 @@ export function useAgentMode(
         items.push({ id: `user_${group.id}`, type: 'user_task', group, size: 60 })
       }
 
-      if (group.steps.length > 0) {
-        // 调试模式 OFF 时，隐藏"成功且无用户必看产出"的 tool_call / tool_result step
-        const debugMode = configStore.agentDebugMode
-        const visibleSteps = group.steps.filter(s => shouldShowToolResultStep(s, debugMode))
-        const segments = foldProcessSteps(visibleSteps, {
-          // 选严格就是要盯着它每一步，这时候收起来是跟用户对着干
-          enabled: !debugMode && configStore.foldAgentProcess && executionMode.value !== 'strict',
-        })
+      const debugMode = configStore.agentDebugMode
+      const foldEnabled = !debugMode && configStore.foldAgentProcess && executionMode.value !== 'strict'
+      const emitProcessSteps = (processSteps: AgentStep[]) => {
+        if (processSteps.length === 0) return
+        const visibleSteps = processSteps.filter(s => shouldShowToolResultStep(s, debugMode))
+        const segments = foldProcessSteps(visibleSteps, { enabled: foldEnabled })
 
         let emittedFirst = false
         const toStepItem = (ref: ProcessStepRef<AgentStep>, isFirst: boolean): VirtualItem => {
@@ -1164,7 +1110,6 @@ export function useAgentMode(
             ? estimateMessageStepVirtualSize(step)
             : step.type === 'user_supplement' ? 60
             : step.type === 'asking' ? 120 : isFirst ? 46 : 40
-          // 同一条步骤拆成两半分头出场，两格的 key 不能撞
           const id = part === 'thinking' ? `${step.id}#thinking` : step.id
           return { id, type: 'step', step, part, group, size, isFirstStep: isFirst }
         }
@@ -1187,13 +1132,14 @@ export function useAgentMode(
             group,
             fold: seg.fold,
             expanded: expandedProcessFoldIds.value.has(seg.fold.id),
-            // 折叠内的步骤不平铺到列表，挂在折叠行下面，展开时高度才能平滑撑开
             children: seg.steps.map(ref => toStepItem(ref, false)),
             size: 30,
             isFirstStep: isFirst,
           })
         }
       }
+
+      emitProcessSteps(group.steps)
 
       // 后端 initial thinking step 到达前，在步骤流末尾补虚拟「正在准备...」（左侧 ThinkingBlock）
       if (shouldInjectPreparingStep(group)) {
@@ -1227,6 +1173,8 @@ export function useAgentMode(
           items.push({ id: `final_${group.id}`, type: 'final_result', group, size: 80, isFirstStep: group.steps.length === 0 })
         }
       }
+
+      emitProcessSteps(group.afterEndSteps)
     }
 
     if (pendingConfirm.value) {
@@ -1641,16 +1589,26 @@ export function useAgentMode(
   > => {
     const agentKey = getAgentKey()
     const tab = currentTab.value
-    if (!agentKey || !tab || tab.isRemote) return { ok: false, reason: 'empty' }
+    const tabId = currentTabId.value
+    if (!agentKey || !tab || !tabId || tab.isRemote) return { ok: false, reason: 'empty' }
     if (isAgentRunning.value) return { ok: false, reason: 'running' }
-    return window.electronAPI.agent.compactContext({
-      agentKey,
-      sessionId: agentState.value?.sessionId,
-      sessionStartTime: agentState.value?.sessionStartTime,
-      terminalType: tab.type,
-      sshHost: tab.sshConfig?.host,
-      hint
-    })
+    const extra = hint?.trim()
+    const title = extra
+      ? `${t('ai.toolNames.compress_context')}：${extra}`
+      : t('ai.toolNames.compress_context')
+    terminalStore.setAgentRunning(tabId, true, agentKey, title)
+    try {
+      return await window.electronAPI.agent.compactContext({
+        agentKey,
+        sessionId: agentState.value?.sessionId,
+        sessionStartTime: agentState.value?.sessionStartTime,
+        terminalType: tab.type,
+        sshHost: tab.sshConfig?.host,
+        hint
+      })
+    } finally {
+      terminalStore.finalizeAgentRunState(tabId)
+    }
   }
 
   /** 追加进当前这场还在跑的对话；不中止任务、不另起一轮。 */

@@ -2172,7 +2172,7 @@ const peekProcessView = computed(() => {
     : []
   return buildPeekProcessView({
     isRunning: isAgentRunning.value,
-    steps: group?.steps || [],
+    steps: [...(group?.steps || []), ...(group?.afterEndSteps || [])],
     items,
   })
 })

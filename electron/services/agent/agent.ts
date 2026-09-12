@@ -40,7 +40,7 @@ import { TaskMemoryStore } from './task-memory'
 import { Conversation, conversationPolicy } from '../conversation'
 import { generateConversationTitle, shouldRefreshConversationTitle } from '../conversation/title-generator'
 import { ContextWindowManager } from './context-window'
-import { beginUserCompactSteps, failUserCompactSteps, finishUserCompactSteps } from './tools/context'
+import { beginUserCompactTurn, cancelUserCompactTurn, failUserCompactTurn, finishUserCompactTurn } from './tools/context'
 import { SUMMARY_OUTPUT_BUDGET_CHARS } from './compression-summary'
 import { resolveBudgetProfileId, shouldSkipCachePathForVision } from './vision-routing'
 import {
@@ -950,7 +950,7 @@ export abstract class Agent {
   }
 
   /**
-   * 用户主动交接：压缩工作窗口。不当成一轮对话。
+   * 用户主动交接：压缩工作窗口。人点名压是新交办的一轮；不当成普通聊天发给模型。
    * 正在跑时拒绝；空对话返回 empty。
    */
   async compactContext(opts: {
@@ -971,6 +971,7 @@ export abstract class Agent {
     const source = prefix?.length ? prefix : [...conv.messages]
     if (source.length === 0) return { ok: false, reason: 'empty' }
 
+    const hint = opts.hint?.trim()
     const run: AgentRun = {
       id: `compact_${Date.now()}`,
       originalUserRequest: '',
@@ -1000,27 +1001,32 @@ export abstract class Agent {
     if (opts.callbacks) this.callbacks = opts.callbacks
     this.currentRun = run
 
-    const hint = opts.hint?.trim()
     const sink = {
       addStep: (step: Partial<AgentStep>) => this.addStep(step),
       updateStep: (stepId: string, updates: Partial<AgentStep>) => this.updateStep(stepId, updates),
       removeStep: (stepId: string) => this.removeStep(stepId)
     }
-    const compactIds = beginUserCompactSteps(sink, hint || undefined)
+    const compactTurn = beginUserCompactTurn(sink, hint || undefined)
+    run.originalUserRequest = compactTurn.userRequest
 
     try {
       const result = await this._contextWindow.userCompress(run, hint ? { userHint: hint } : undefined)
       if (!result) {
-        sink.removeStep(compactIds.thinkingId)
-        sink.removeStep(compactIds.toolStepId)
+        cancelUserCompactTurn(sink, compactTurn)
         return { ok: false, reason: 'empty' }
       }
 
-      finishUserCompactSteps(sink, compactIds, result)
+      const output = finishUserCompactTurn(sink, compactTurn, result)
       conv.setWorkingContext(run.messages)
       conv.setCachePrefix(run.messages)
       conv.adoptCompressedArchives(run.compressedArchives)
-      conv.appendSteps(run.steps)
+      conv.commitTranscriptTurn({
+        runId: run.id,
+        userRequest: compactTurn.userRequest,
+        steps: run.steps,
+        taskStatus: 'success',
+        result: output
+      })
       this.saveSessionToHistory()
 
       const afterTokens = this._contextWindow.estimateCurrentPromptTokens(run.messages)
@@ -1040,9 +1046,15 @@ export abstract class Agent {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      failUserCompactSteps(sink, compactIds, message)
+      const output = failUserCompactTurn(sink, compactTurn, message)
       conv.adoptCompressedArchives(run.compressedArchives)
-      conv.appendSteps(run.steps)
+      conv.commitTranscriptTurn({
+        runId: run.id,
+        userRequest: compactTurn.userRequest,
+        steps: run.steps,
+        taskStatus: 'failed',
+        result: output
+      })
       this.saveSessionToHistory()
       log.error('User compact failed:', err)
       return { ok: false, reason: 'failed' }

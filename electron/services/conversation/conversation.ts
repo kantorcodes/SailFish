@@ -952,12 +952,39 @@ export class Conversation {
     this._workingContext = messages ? messages.map(m => JSON.parse(JSON.stringify(m))) : undefined
   }
 
-  /** 只追加界面过程（如用户主动交接），不另开一轮、不进工作记忆。 */
+  /** 只追加界面过程（如任务进行中的自动交接），不另开一轮、不进工作记忆。 */
   appendSteps(steps: AgentStep[]): void {
     const persistable = filterPersistableSteps(steps)
     if (persistable.length === 0) return
     this._steps.push(...persistable)
     this._dirty = true
+  }
+
+  /**
+   * 人主动要求的一轮（如压缩上下文）：写入画面和任务记忆，
+   * 不改工作上下文——脑子里带着什么仍由交接检查点说了算。
+   */
+  commitTranscriptTurn(input: {
+    runId: string
+    userRequest: string
+    steps: AgentStep[]
+    taskStatus: 'success' | 'failed' | 'aborted'
+    result: string
+  }): void {
+    const persistable = filterPersistableSteps(input.steps)
+    const taskLog: AiMessage[] = [
+      { role: 'user', content: input.userRequest },
+      { role: 'assistant', content: input.result }
+    ]
+    this._taskMemory.saveTask(
+      input.runId,
+      input.userRequest,
+      persistable,
+      input.taskStatus,
+      input.result,
+      taskLog
+    )
+    this.accumulate(persistable, taskLog)
   }
 
   /** 从落盘的交接检查点恢复工作上下文，并接上 cache 前缀。 */

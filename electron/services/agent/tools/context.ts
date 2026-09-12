@@ -14,6 +14,36 @@ type CompactStepSink = {
   removeStep: (stepId: string) => void
 }
 
+export function userCompactRequest(hint?: string): string {
+  const title = t('agent.compact_tool_step')
+  const extra = hint?.trim()
+  return extra ? `${title}：${extra}` : title
+}
+
+export function beginUserCompactTurn(sink: CompactStepSink, hint?: string): {
+  userTaskId: string
+  userRequest: string
+  thinkingId: string
+  toolStepId: string
+} {
+  const userRequest = userCompactRequest(hint)
+  const userTask = sink.addStep({
+    type: 'user_task',
+    content: userRequest
+  })
+  const ids = beginUserCompactSteps(sink, hint)
+  return { userTaskId: userTask.id, userRequest, ...ids }
+}
+
+export function cancelUserCompactTurn(
+  sink: CompactStepSink,
+  ids: { userTaskId: string; thinkingId: string; toolStepId: string }
+): void {
+  sink.removeStep(ids.thinkingId)
+  sink.removeStep(ids.toolStepId)
+  sink.removeStep(ids.userTaskId)
+}
+
 export function beginUserCompactSteps(sink: CompactStepSink, hint?: string): {
   thinkingId: string
   toolStepId: string
@@ -80,6 +110,39 @@ export function failUserCompactSteps(
     toolResult: message,
     success: false
   })
+}
+
+export function finishUserCompactTurn(
+  sink: CompactStepSink,
+  ids: { thinkingId: string; toolStepId: string },
+  result: CompressResult
+): string {
+  finishUserCompactSteps(sink, ids, result)
+  const output = t('context_tool.compress_success', {
+    before: result.beforeTokens.toLocaleString(),
+    after: result.afterTokens.toLocaleString(),
+    freed: result.freedTokens.toLocaleString(),
+    archiveId: result.archiveId
+  })
+  sink.addStep({
+    type: 'final_result',
+    content: output
+  })
+  return output
+}
+
+export function failUserCompactTurn(
+  sink: CompactStepSink,
+  ids: { thinkingId: string; toolStepId: string },
+  message: string
+): string {
+  failUserCompactSteps(sink, ids, message)
+  const result = `❌ ${message}`
+  sink.addStep({
+    type: 'final_result',
+    content: result
+  })
+  return result
 }
 
 /**

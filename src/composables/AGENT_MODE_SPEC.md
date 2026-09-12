@@ -1,6 +1,6 @@
 # useAgentMode 组合式函数 SPEC
 
-> Last verified: 2026-09-11（正在连接也能说话）  
+> Last verified: 2026-09-12（任务结束后压缩跟在收场后面）  
 > 文件：`src/composables/useAgentMode.ts`  
 > 职责：管理单个 AiPanel（tab）的 Agent 运行生命周期、步骤分组、IPC 事件路由。
 
@@ -98,7 +98,9 @@ isEventForThisTab = resolvedTabId === currentTabId
   proactive_notice → 追加到当前 group.steps；无 currentGroup 时合成独立 isProactive group（finalResult=content）
   user_supplement（在 user_task 之前到达）→ 暂存为 leadingSupplements，user_task 到达后追加
   confirm        → 不进入 group（由 pendingConfirm 单独管理）
-  其他 step      → 追加到当前 group.steps
+  其他 step（任务进行中）→ 追加到当前 group.steps
+  任务已结束后、没有新的用户要求时出现的思考 / 工具过程 → 画在这场收场后面
+  人主动要求压缩 → 新的一轮用户要求，跟在上一场收场后面
 ```
 
 ### 过程折叠（flattenedItems）
