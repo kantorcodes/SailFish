@@ -15,6 +15,10 @@ import { buildArtifactPreviewUrl } from '@shared/types'
 import { useAssistantArtifactStore } from '../store'
 import { useToast } from '@sailfish/workbench-sdk/toast'
 import { normalizeHtmlPreviewContent } from '../domain/html-preview'
+import {
+  htmlPreviewViewportGuestScript,
+  isHtmlPreviewViewportEnabled
+} from '../domain/html-preview-viewport'
 import { useWebviewZoom } from '../composables/useWebviewZoom'
 import { useHtmlPreviewSelection } from '../composables/useHtmlPreviewSelection'
 import { BUTTON_HOVER_TIP_DELAY_MS, useHoverTip } from '../ui/useHoverTip'
@@ -171,6 +175,19 @@ const {
 function onDomReady() {
   onZoomDomReady()
   void onGuestDomReady()
+  void installViewportGuest()
+}
+
+/** 内容比窗口大时，客页自己放开滚动并允许拖着挪（幻灯片预览不接管） */
+async function installViewportGuest() {
+  if (!isHtmlPreviewViewportEnabled({ isPptPreview: isPptPreview.value })) return
+  const wv = webviewRef.value
+  if (!wv) return
+  try {
+    await wv.executeJavaScript(htmlPreviewViewportGuestScript())
+  } catch {
+    /* guest 未就绪或已销毁 */
+  }
 }
 
 function onIpcMessage(e: IpcMessageEvent) {
