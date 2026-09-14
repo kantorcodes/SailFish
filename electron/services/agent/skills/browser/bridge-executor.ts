@@ -25,6 +25,7 @@ import {
   getBridgeSession,
   resolveBridgeRef,
   touchBridgeSession,
+  AttachOccupiedError,
 } from './bridge-session'
 import { selectorToHumanLabel } from './ref-label'
 import { extractPageContentFromHtml } from '../../../../utils/page-content-extract'
@@ -92,7 +93,9 @@ export async function bridgeBrowserLaunch(
     return {
       success: false,
       output: '',
-      error: `${errorMsg}\n请在 SailFish 设置 → 集成 → 浏览器助手中安装组件并加载扩展。`,
+      error: error instanceof AttachOccupiedError
+        ? errorMsg
+        : `${errorMsg}\n请在 SailFish 设置 → 集成 → 浏览器助手中安装组件并加载扩展。`,
     }
   }
 }
@@ -607,7 +610,8 @@ export async function ensureBridgeSessionIfPreferred(
   try {
     await createBridgeSession(ptyId, args.browser)
     return true
-  } catch {
+  } catch (err) {
+    if (err instanceof AttachOccupiedError) throw err
     return false
   }
 }

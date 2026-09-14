@@ -35,6 +35,8 @@ import type { CommandHandlingInfo } from './risk-assessor'
 import { setConfigService as setI18nConfigService } from './i18n'
 import { getTerminalStateService } from '../terminal-state.service'
 import { createLogger } from '../../utils/logger'
+import { conversationRootId } from './skills/browser/session-key'
+import { setAttachLockRunningChecker } from './skills/browser/bridge-session'
 
 const log = createLogger('AgentService')
 
@@ -122,6 +124,8 @@ export class AgentService {
     if (configService) {
       setI18nConfigService(configService)
     }
+
+    setAttachLockRunningChecker((rootId) => this.isConversationRunning(rootId))
   }
   
   // ==================== 服务设置（延迟初始化） ====================
@@ -293,6 +297,18 @@ export class AgentService {
    */
   hasRunningAgents(): boolean {
     return Array.from(this.agents.values()).some(agent => agent.isRunning())
+  }
+
+  /**
+   * 这场对话（含伙计）是否还有人在跑。
+   * 吸附锁用：占着用户浏览器的那场还在跑，别的对话不能抢。
+   */
+  isConversationRunning(rootId: string): boolean {
+    const root = conversationRootId(rootId)
+    for (const [key, agent] of this.agents) {
+      if (conversationRootId(key) === root && agent.isRunning()) return true
+    }
+    return false
   }
   
   /**

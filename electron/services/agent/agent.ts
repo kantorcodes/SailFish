@@ -367,6 +367,11 @@ export abstract class Agent {
     this._agentId = id
   }
 
+  /** 这场对话的身份（伙计、浏览器会话跟这个走）。没有逻辑 ID 时退回运行标识。 */
+  protected getConversationAgentId(): string {
+    return this._agentId || this.getAgentId()
+  }
+
   /**
    * 显式标记为「持久命名 Agent」（覆盖 kind→policy 自决）。
    * 生产代码不再需要调用——companion/watch 由 agentId 推断的 kind 自动判定。
@@ -4621,7 +4626,7 @@ export abstract class Agent {
 
   protected createToolExecutorConfig(run: AgentRun): ToolExecutorConfig {
     return {
-      agentId: this._agentId || run.ptyId || undefined,
+      agentId: this.getConversationAgentId(),
       isSubAgent: this._isSubAgent,
       getSessionId: () => this.getSessionId(),
       terminalService: this.services.unifiedTerminalService || this.services.ptyService as any,

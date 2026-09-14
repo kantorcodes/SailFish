@@ -47,7 +47,7 @@ import {
   shouldPreferAttach,
   ensureBridgeSessionIfPreferred,
 } from './bridge-executor'
-import { closeBridgeSession, hasBridgeSession } from './bridge-session'
+import { AttachOccupiedError, closeBridgeSession, hasBridgeSession } from './bridge-session'
 import { resolveBrowserSessionKey } from './session-key'
 
 /**
@@ -78,7 +78,14 @@ export async function executeBrowserTool(
     toolName !== 'browser_list_profiles' &&
     toolName !== 'browser_save_login'
   ) {
-    await ensureBridgeSessionIfPreferred(sessionKey, args, playwrightOpen)
+    try {
+      await ensureBridgeSessionIfPreferred(sessionKey, args, playwrightOpen)
+    } catch (err) {
+      if (err instanceof AttachOccupiedError) {
+        return { success: false, output: '', error: err.message }
+      }
+      throw err
+    }
   }
 
   if (toolName !== 'browser_launch' && shouldUseBridge(sessionKey, playwrightOpen)) {

@@ -128,7 +128,7 @@ export class SailFish extends Agent {
 
   private spawnChild(name: string): ChildAgentHandle {
     const child = new SailFish(this.services)
-    child.setAgentId(`${this.getAgentId()}:sub:${name}`)
+    child.setAgentId(`${this.getConversationAgentId()}:sub:${name}`)
     child.markAsSubAgent()
     child.updateConfig({
       executionMode: this.executionMode,

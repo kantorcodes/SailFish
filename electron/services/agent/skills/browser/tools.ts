@@ -31,7 +31,7 @@ export const browserTools: ToolDefinition[] = [
 - 点按钮/填表 → \`browser_snapshot\`
 - 公开 URL 且无需登录 → \`web_fetch\`
 
-**其它**：每场对话一个会话；launch 5 分钟无操作自动关；attach 的 close 只断开连接、不关用户窗口。attach 下 \`browser_goto\` 默认新开标签，不覆盖当前页。`,
+**其它**：每场对话一个会话；同一档用户浏览器同时只给一场正在跑的对话吸附，那场停了别的对话可以接过去；launch 5 分钟无操作自动关；attach 的 close 只断开连接、不关用户窗口。attach 下 \`browser_goto\` 默认新开标签，不覆盖当前页。`,
       parameters: {
         type: 'object',
         properties: {
