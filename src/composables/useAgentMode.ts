@@ -23,10 +23,9 @@ import { resolveWorkbenchAgentPrompt, resolveWorkbenchKind } from '../workbench'
 import { showConfirm, showAlert } from './useConfirm'
 import { toast } from './useToast'
 import { resolveExactSlash } from './slash-commands'
-import { followUpQueueShortcutLabel } from '../utils/shortcut'
+import { formatAccelerator } from '../utils/shortcut'
 
 const log = createLogger('Agent')
-const queueShortcut = followUpQueueShortcutLabel()
 
 function getLocalSystemInfo() {
   const platform = navigator.platform.toLowerCase()
@@ -146,6 +145,7 @@ export function useAgentMode(
   const terminalStore = useTerminalStore()
   const configStore = useConfigStore()
   const tts = useTts()
+  const queueShortcutLabel = () => formatAccelerator(configStore.keyboardShortcuts.queueFollowUp)
 
   watch(
     () => [configStore.ttsSettings.enabled, configStore.ttsSettings.autoSpeak] as const,
@@ -1242,7 +1242,7 @@ export function useAgentMode(
     if (injectIntoCurrentRun) {
       if (compactSlash?.def.id === 'compact' && !options?.enqueue) {
         putBackQueued()
-        toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+        toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcutLabel() }))
         return
       }
       if (options?.enqueue) {
@@ -1334,7 +1334,7 @@ export function useAgentMode(
       if (!result.ok) {
         if (result.reason === 'running') {
           putBackQueued()
-          toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+          toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcutLabel() }))
         } else if (result.reason === 'failed') {
           toast.error(t('ai.slashCompactFailed'))
         } else {

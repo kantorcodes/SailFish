@@ -12,7 +12,7 @@ import {
   resolveExactSlash,
   type SlashCommandDef
 } from '../composables/slash-commands'
-import { followUpQueueShortcutLabel, isFollowUpQueueChord } from '../utils/shortcut'
+import { decorateShortcut, formatAccelerator, resolveComposerChord } from '../utils/shortcut'
 import { toast } from '../composables/useToast'
 import { useComposerQuoteStore } from '../stores/composer-quote'
 import { useConversationSkillsStore } from '../stores/conversation-skills'
@@ -518,24 +518,43 @@ const { value: randomPlaceholder, pick: pickRandomPlaceholder } = useRandomPlace
   () => props.placeholderFallbackKey ?? 'ai.inputPlaceholderAgent'
 )
 
-const queueShortcut = followUpQueueShortcutLabel()
+const sendShortcut = computed(() => formatAccelerator(configStore.keyboardShortcuts.sendMessage))
+const queueShortcut = computed(() => formatAccelerator(configStore.keyboardShortcuts.queueFollowUp))
 
 const followUpItems = computed(() => props.followUpQueue ?? [])
 const isEditingFollowUp = computed(() => !!props.isEditingFollowUp)
 
+function composerChord(event: KeyboardEvent): 'queue' | 'send' | null {
+  return resolveComposerChord(
+    event,
+    configStore.keyboardShortcuts.sendMessage,
+    configStore.keyboardShortcuts.queueFollowUp,
+  )
+}
+
 const sendButtonTitle = computed(() => {
-  if (isEditingFollowUp.value) return t('ai.followUpEditSave')
-  if (props.isAgentRunning) return t('ai.sendSupplementWithQueue', { shortcut: queueShortcut })
-  return t('ai.executeTask')
+  if (isEditingFollowUp.value) {
+    return t('ai.followUpEditSave', { shortcut: decorateShortcut(sendShortcut.value, t('ai.hintExecute')) })
+  }
+  if (props.isAgentRunning) {
+    return t('ai.sendSupplementWithQueue', {
+      send: decorateShortcut(sendShortcut.value, t('ai.hintExecute')),
+      queue: decorateShortcut(queueShortcut.value, t('ai.hintQueueTask')),
+    })
+  }
+  return t('ai.executeTask', { shortcut: decorateShortcut(sendShortcut.value, t('ai.hintExecute')) })
 })
 
 const composerPlaceholder = computed(
   () =>
     props.placeholder ??
     (isEditingFollowUp.value
-      ? t('ai.inputPlaceholderEditFollowUp')
+      ? t('ai.inputPlaceholderEditFollowUp', { shortcut: decorateShortcut(sendShortcut.value, t('ai.hintEditSave')) })
       : props.isAgentRunning
-        ? t('ai.inputPlaceholderSupplement', { shortcut: queueShortcut })
+        ? t('ai.inputPlaceholderSupplement', {
+            send: decorateShortcut(sendShortcut.value, t('ai.hintParen')),
+            queue: decorateShortcut(queueShortcut.value, t('ai.hintQueueShort')),
+          })
         : randomPlaceholder.value || t(props.placeholderFallbackKey ?? 'ai.inputPlaceholderAgent'))
 )
 
@@ -834,7 +853,7 @@ const completeSlash = (def: SlashCommandDef) => {
 
 const applySlashResult = (result: { ok: true; freedTokens: number } | { ok: false; reason: string }) => {
   if (result.ok) return
-  if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+  if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut.value }))
   else if (result.reason === 'failed') toast.error(t('ai.slashCompactFailed'))
   else toast.info(t('ai.slashCompactEmpty'))
 }
@@ -1171,12 +1190,13 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
       if (selected) completeSlash(selected)
       return
     }
-    if (event.key === 'Enter' && !event.shiftKey && !isComposing.value) {
+    if (!isComposing.value && composerChord(event) === 'queue') {
       event.preventDefault()
-      if (isFollowUpQueueChord(event)) {
-        void handleSend({ enqueue: props.isAgentRunning && !isEditingFollowUp.value })
-        return
-      }
+      void handleSend({ enqueue: props.isAgentRunning && !isEditingFollowUp.value })
+      return
+    }
+    if (!isComposing.value && composerChord(event) === 'send') {
+      event.preventDefault()
       const selected = slashMatches.value[slashSelectedIndex.value]
       if (!selected) return
       if (resolveExactSlash(inputText.value.trim())) {
@@ -1184,6 +1204,12 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
         return
       }
       completeSlash(selected)
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !isComposing.value) {
+      event.preventDefault()
+      const selected = slashMatches.value[slashSelectedIndex.value]
+      if (selected) completeSlash(selected)
       return
     }
   }
@@ -1204,24 +1230,25 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
     return
   }
 
-  if (event.key !== 'Enter' || isComposing.value) return
+  if (isComposing.value) return
 
-  // 编辑排队消息：回车与 ⌘/Ctrl+回车都是保存回原位；Shift+回车仍换行
+  // 编辑排队消息：发送和排队都是保存回原位
   if (isEditingFollowUp.value) {
-    if (event.shiftKey) return
-    event.preventDefault()
-    void handleSend()
+    if (composerChord(event)) {
+      event.preventDefault()
+      void handleSend()
+    }
     return
   }
 
-  // 只认宣传出去的那个组合键：mac 是 ⌘、其它是 Ctrl，且不带 Shift/Alt
-  if (isFollowUpQueueChord(event)) {
+  const chord = composerChord(event)
+  if (chord === 'queue') {
     event.preventDefault()
     void handleSend({ enqueue: props.isAgentRunning })
     return
   }
 
-  if (!event.shiftKey) {
+  if (chord === 'send') {
     event.preventDefault()
     void handleSend()
   }
@@ -1247,7 +1274,7 @@ const handleSend = async (opts?: { enqueue?: boolean }) => {
       return
     }
     if (props.isAgentRunning) {
-      toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+      toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut.value }))
       return
     }
     await runSlashCommand(exactSlash.def, exactSlash.hint)
@@ -1606,7 +1633,7 @@ const handleSendClick = (event: MouseEvent) => {
     v-if="slashHintVisible"
     class="slash-hint"
     role="listbox"
-    :aria-label="t('ai.slashHintKey')"
+    :aria-label="t('ai.slashHintKey', { shortcut: decorateShortcut(sendShortcut, t('ai.hintSlashSend')) })"
   >
     <button
       v-for="(cmd, index) in slashMatches"
@@ -1621,7 +1648,7 @@ const handleSendClick = (event: MouseEvent) => {
     >
       <span class="slash-hint-name">/{{ primarySlashName(cmd) }}</span>
       <span class="slash-hint-desc">{{ t('ai.slashCompactDesc') }}</span>
-      <span class="slash-hint-key">{{ t('ai.slashHintKey') }}</span>
+      <span class="slash-hint-key">{{ t('ai.slashHintKey', { shortcut: decorateShortcut(sendShortcut, t('ai.hintSlashSend')) }) }}</span>
     </button>
   </div>
 

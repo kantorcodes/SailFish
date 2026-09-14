@@ -949,6 +949,8 @@ export default {
   // Shortcut Settings
   shortcutSettings: {
     description: 'Customize application shortcuts. Click a shortcut area and press a new key combination to change it.',
+    groupComposer: 'Message Input',
+    groupComposerHint: 'Only in the message box. Unused Enter (including Shift+Enter) inserts a newline.',
     groupOpen: 'Open & Create',
     groupView: 'Views',
     groupPane: 'Terminal Panes',
@@ -971,8 +973,11 @@ export default {
       splitHorizontal: 'Split Horizontal',
       splitVertical: 'Split Vertical',
       closePane: 'Close Current Pane',
+      sendMessage: 'Send',
+      queueFollowUp: 'Queue for after the current task',
     },
     recording: 'Press a shortcut...',
+    recordingComposer: 'Press a shortcut (Enter is allowed by itself)...',
     recordingModifier: 'Press a modifier key...',
     holdToTalk: 'Hold to talk',
     voiceInputHint: 'Requires the speech model (Settings → AI). Or use system dictation (Win+H / macOS Dictation). Pick a key that does not clash with your IME',
@@ -984,6 +989,7 @@ export default {
     resetAllConfirm: 'Are you sure you want to reset all shortcuts to defaults?',
     clear: 'Clear',
     conflict: 'Shortcut conflict: already used by "{action}"',
+    reservedConflict: 'Shortcut conflict: already used to close a tab, quit, or zoom',
   },
 
 

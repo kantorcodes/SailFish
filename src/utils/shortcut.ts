@@ -10,8 +10,8 @@
  * 把 `Cmd`/`Ctrl` 和 `CmdOrCtrl` 区分开，是为了能精确表达「mac 用 ⌘D、win 用 Ctrl+Shift+D」
  * 这种平台默认值——前者绝不能在 win 上误触发 Ctrl+D（终端 EOF），反过来也一样。
  *
- * 用户在设置页录入快捷键时仍统一记成 `CmdOrCtrl+...`（见 ShortcutSettings.vue 的
- * keyEventToAccelerator）；只有 DEFAULT_KEYBOARD_SHORTCUTS 里的平台专属值会用到 Cmd/Ctrl。
+ * 用户在设置页录入快捷键时仍统一记成 `CmdOrCtrl+...`（见 keyEventToAccelerator）；
+ * 只有 DEFAULT_KEYBOARD_SHORTCUTS 里的平台专属值会用到 Cmd/Ctrl。
  */
 
 interface ParsedAccelerator {
@@ -84,6 +84,30 @@ export function matchAccelerator(event: KeyboardEvent, accelerator: string): boo
   return eventKey.toLowerCase() === targetKey.toLowerCase()
 }
 
+function primaryKeyEquals(a: string, b: string): boolean {
+  if (a.length === 1 && b.length === 1) return a.toUpperCase() === b.toUpperCase()
+  return a.toLowerCase() === b.toLowerCase()
+}
+
+/** 两种写法会不会抢同一下按键（Cmd+Enter 与 CmdOrCtrl+Enter 算冲突）。 */
+export function acceleratorsConflict(a: string, b: string): boolean {
+  if (!a || !b) return false
+  const left = parseAccelerator(a)
+  const right = parseAccelerator(b)
+  if (!left || !right) return false
+  if (!primaryKeyEquals(left.key, right.key)) return false
+  if (left.shift !== right.shift || left.alt !== right.alt) return false
+
+  const metaCtrlPairs = (parsed: ParsedAccelerator): Array<[boolean, boolean]> => {
+    if (parsed.cmdOrCtrl) return [[true, false], [false, true], [true, true]]
+    return [[parsed.cmd, parsed.ctrl]]
+  }
+  const rightPairs = metaCtrlPairs(right)
+  return metaCtrlPairs(left).some(([meta, ctrl]) =>
+    rightPairs.some(([otherMeta, otherCtrl]) => meta === otherMeta && ctrl === otherCtrl)
+  )
+}
+
 /**
  * 把 Accelerator 字符串格式化成给用户看的紧凑显示（用于菜单项 / 工具提示等单行展示）。
  *
@@ -97,17 +121,6 @@ export function isMacPlatform(): boolean {
   return typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
 }
 
-/** 运行中把下一句排到结束后再做：mac 是 ⌘↵，其它是 Ctrl+Enter。 */
-export function followUpQueueShortcutLabel(): string {
-  return isMacPlatform() ? '⌘↵' : 'Ctrl+Enter'
-}
-
-export function isFollowUpQueueChord(event: KeyboardEvent): boolean {
-  return !event.shiftKey &&
-    !event.altKey &&
-    (isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
-}
-
 export function formatAccelerator(accelerator: string): string {
   if (!accelerator) return ''
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
@@ -116,14 +129,85 @@ export function formatAccelerator(accelerator: string): string {
     Cmd: '⌘', Command: '⌘', Meta: '⌘',
     Ctrl: '⌃', Control: '⌃',
     Shift: '⇧', Alt: '⌥', Option: '⌥',
+    Enter: '↵',
   }
   const winMap: Record<string, string> = {
     CmdOrCtrl: 'Ctrl', CommandOrControl: 'Ctrl',
     Cmd: 'Cmd', Command: 'Cmd', Meta: 'Win',
     Ctrl: 'Ctrl', Control: 'Ctrl',
     Shift: 'Shift', Alt: 'Alt', Option: 'Alt',
+    Enter: 'Enter',
   }
   const map = isMac ? macMap : winMap
   const parts = accelerator.split('+').map(p => map[p] ?? p)
   return isMac ? parts.join('') : parts.join('+')
+}
+
+/**
+ * 把一次按键录成 Accelerator。默认不接受没有修饰键的字母键。
+ * 消息输入允许单独录回车。
+ */
+export function keyEventToAccelerator(
+  event: KeyboardEvent,
+  opts?: { allowBareEnter?: boolean },
+): string | null {
+  if (['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) {
+    return null
+  }
+
+  const parts: string[] = []
+  if (event.ctrlKey || event.metaKey) parts.push('CmdOrCtrl')
+  if (event.shiftKey) parts.push('Shift')
+  if (event.altKey) parts.push('Alt')
+
+  let key = event.key
+  if (key === ' ') key = 'Space'
+  else if (key === ',') key = ','
+  else if (key === '.') key = '.'
+  else if (key === '=') key = '='
+  else if (key === '-') key = '-'
+  else if (key.startsWith('F') && key.length > 1 && !isNaN(Number(key.slice(1)))) {
+    // F1-F12
+  } else if (key.length === 1) {
+    key = key.toUpperCase()
+  } else {
+    switch (key) {
+      case 'ArrowUp': key = 'Up'; break
+      case 'ArrowDown': key = 'Down'; break
+      case 'ArrowLeft': key = 'Left'; break
+      case 'ArrowRight': key = 'Right'; break
+      case 'Escape': key = 'Escape'; break
+      case 'Enter': key = 'Enter'; break
+      case 'Backspace': key = 'Backspace'; break
+      case 'Delete': key = 'Delete'; break
+      case 'Tab': key = 'Tab'; break
+      default: return null
+    }
+  }
+
+  parts.push(key)
+
+  if (parts.length === 1 && !key.startsWith('F')) {
+    if (opts?.allowBareEnter && key === 'Enter') return 'Enter'
+    return null
+  }
+
+  return parts.join('+')
+}
+
+/** 发送和排队抢同一下时排队优先；都没对上则不是输入框快捷键。 */
+export function resolveComposerChord(
+  event: KeyboardEvent,
+  sendAccel: string,
+  queueAccel: string,
+): 'queue' | 'send' | null {
+  if (queueAccel && matchAccelerator(event, queueAccel)) return 'queue'
+  if (sendAccel && matchAccelerator(event, sendAccel)) return 'send'
+  return null
+}
+
+/** 提示里套进「（%s）」这类模板；快捷键被清空时整段不出现，避免留下空括号。 */
+export function decorateShortcut(label: string, pattern: string): string {
+  if (!label) return ''
+  return pattern.replaceAll('%s', label)
 }

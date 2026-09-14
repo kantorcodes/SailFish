@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useConfigStore, DEFAULT_KEYBOARD_SHORTCUTS, type KeyboardShortcuts } from '../../stores/config'
 import { showConfirm } from '../../composables/useConfirm'
 import { SettingsPage, SettingsGroup, SettingRow, SettingNotice } from './kit'
+import { acceleratorsConflict, keyEventToAccelerator } from '../../utils/shortcut'
 
 const { t } = useI18n()
 const configStore = useConfigStore()
@@ -16,7 +17,11 @@ type ShortcutAction = keyof KeyboardShortcuts
 // newAssistantTab 不在此列：它已是「跟随当前位置新建」，无助手的 Steam 版仍能用它开终端
 const AI_ACTIONS: ShortcutAction[] = ['toggleAiPanel', 'toggleKnowledge', 'aiDebugConsole', 'voiceInput']
 
+const COMPOSER_ACTIONS: ShortcutAction[] = ['sendMessage', 'queueFollowUp']
+
 const allActions: ShortcutAction[] = ([
+  'sendMessage',
+  'queueFollowUp',
   'newAssistantTab',
   'newLocalTerminal',
   'newSshConnection',
@@ -37,7 +42,12 @@ const allActions: ShortcutAction[] = ([
 ] as ShortcutAction[]).filter(a => !isSteamBuild || !AI_ACTIONS.includes(a))
 
 // 按用途分组：十几条快捷键平铺成一堵墙，找不到想改的那条
-const ACTION_GROUPS: ReadonlyArray<{ titleKey: string; actions: ShortcutAction[] }> = [
+const ACTION_GROUPS: ReadonlyArray<{ titleKey: string; descKey?: string; actions: ShortcutAction[] }> = [
+  {
+    titleKey: 'shortcutSettings.groupComposer',
+    descKey: 'shortcutSettings.groupComposerHint',
+    actions: [...COMPOSER_ACTIONS],
+  },
   {
     titleKey: 'shortcutSettings.groupOpen',
     actions: ['newAssistantTab', 'newLocalTerminal', 'newSshConnection', 'openFileManager', 'batchCommand', 'openSettings'],
@@ -60,9 +70,14 @@ const ACTION_GROUPS: ReadonlyArray<{ titleKey: string; actions: ShortcutAction[]
 const visibleGroups = computed(() =>
   ACTION_GROUPS.map((g) => ({
     titleKey: g.titleKey,
+    descKey: g.descKey,
     actions: g.actions.filter((a) => allActions.includes(a)),
   })).filter((g) => g.actions.length > 0)
 )
+
+function isComposerAction(action: ShortcutAction): boolean {
+  return COMPOSER_ACTIONS.includes(action)
+}
 
 const HOLD_KEY_ACTIONS: ShortcutAction[] = ['voiceInput']
 
@@ -85,12 +100,14 @@ const KEY_DISPLAY_MAP: Record<string, string> = isMac
       Cmd: '⌘', Command: '⌘', Meta: '⌘',
       Ctrl: '⌃', Control: '⌃',
       Shift: '⇧', Alt: '⌥', Option: '⌥',
+      Enter: '↵',
     }
   : {
       CmdOrCtrl: 'Ctrl', CommandOrControl: 'Ctrl',
       Cmd: 'Cmd', Command: 'Cmd', Meta: 'Win',
       Ctrl: 'Ctrl', Control: 'Ctrl',
       Shift: 'Shift', Alt: 'Alt', Option: 'Alt',
+      Enter: 'Enter',
     }
 
 function acceleratorToKeys(accelerator: string): string[] {
@@ -99,59 +116,29 @@ function acceleratorToKeys(accelerator: string): string[] {
   return parts.map(part => KEY_DISPLAY_MAP[part] ?? part)
 }
 
-function keyEventToAccelerator(e: KeyboardEvent): string | null {
-  if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) {
-    return null
-  }
-
-  const parts: string[] = []
-  if (e.ctrlKey || e.metaKey) parts.push('CmdOrCtrl')
-  if (e.shiftKey) parts.push('Shift')
-  if (e.altKey) parts.push('Alt')
-
-  let key = e.key
-  if (key === ' ') key = 'Space'
-  else if (key === ',') key = ','
-  else if (key === '.') key = '.'
-  else if (key === '=') key = '='
-  else if (key === '-') key = '-'
-  else if (key.startsWith('F') && key.length > 1 && !isNaN(Number(key.slice(1)))) {
-    // F1-F12
-  } else if (key.length === 1) {
-    key = key.toUpperCase()
-  } else {
-    switch (key) {
-      case 'ArrowUp': key = 'Up'; break
-      case 'ArrowDown': key = 'Down'; break
-      case 'ArrowLeft': key = 'Left'; break
-      case 'ArrowRight': key = 'Right'; break
-      case 'Escape': key = 'Escape'; break
-      case 'Enter': key = 'Enter'; break
-      case 'Backspace': key = 'Backspace'; break
-      case 'Delete': key = 'Delete'; break
-      case 'Tab': key = 'Tab'; break
-      default: return null
-    }
-  }
-
-  parts.push(key)
-
-  if (parts.length === 1 && !key.startsWith('F')) {
-    return null
-  }
-
-  return parts.join('+')
-}
-
 function findConflict(accelerator: string, excludeAction: ShortcutAction): ShortcutAction | null {
   if (!accelerator) return null
   for (const action of allActions) {
     if (action === excludeAction) continue
-    if (configStore.keyboardShortcuts[action] === accelerator) {
+    if (acceleratorsConflict(configStore.keyboardShortcuts[action], accelerator)) {
       return action
     }
   }
   return null
+}
+
+const RESERVED_ACCELERATORS = [
+  'CmdOrCtrl+W',
+  'Command+Q',
+  'CmdOrCtrl+Q',
+  'CmdOrCtrl+=',
+  'CmdOrCtrl+Plus',
+  'CmdOrCtrl+-',
+  'CmdOrCtrl+0',
+]
+
+function isReservedAccelerator(accelerator: string): boolean {
+  return RESERVED_ACCELERATORS.some(reserved => acceleratorsConflict(reserved, accelerator))
 }
 
 function startRecording(action: ShortcutAction) {
@@ -182,8 +169,13 @@ function handleKeydown(e: KeyboardEvent, action: ShortcutAction) {
     return
   }
 
-  const accelerator = keyEventToAccelerator(e)
+  const accelerator = keyEventToAccelerator(e, { allowBareEnter: isComposerAction(action) })
   if (!accelerator) return
+
+  if (isReservedAccelerator(accelerator)) {
+    conflictMessage.value = t('shortcutSettings.reservedConflict')
+    return
+  }
 
   const conflict = findConflict(accelerator, action)
   if (conflict) {
@@ -210,9 +202,17 @@ function clearShortcut(action: ShortcutAction, e: Event) {
 function resetShortcut(action: ShortcutAction, e: Event) {
   e.stopPropagation()
   recordingAction.value = null
+  const next = DEFAULT_KEYBOARD_SHORTCUTS[action]
+  const conflict = findConflict(next, action)
+  if (conflict) {
+    conflictMessage.value = t('shortcutSettings.conflict', {
+      action: t(`shortcutSettings.actions.${conflict}`)
+    })
+    return
+  }
   const newShortcuts = {
     ...configStore.keyboardShortcuts,
-    [action]: DEFAULT_KEYBOARD_SHORTCUTS[action]
+    [action]: next
   }
   configStore.setKeyboardShortcuts(newShortcuts)
   conflictMessage.value = ''
@@ -254,6 +254,7 @@ function isActionModified(action: ShortcutAction): boolean {
       v-for="group in visibleGroups"
       :key="group.titleKey"
       :title="t(group.titleKey)"
+      :desc="group.descKey ? t(group.descKey) : undefined"
     >
       <SettingRow
         v-for="action in group.actions"
@@ -286,7 +287,7 @@ function isActionModified(action: ShortcutAction): boolean {
           @keydown="handleKeydown($event, action)"
         >
           <template v-if="recordingAction === action">
-            <span class="recording-text">{{ isHoldKeyAction(action) ? t('shortcutSettings.recordingModifier') : t('shortcutSettings.recording') }}</span>
+            <span class="recording-text">{{ isHoldKeyAction(action) ? t('shortcutSettings.recordingModifier') : isComposerAction(action) ? t('shortcutSettings.recordingComposer') : t('shortcutSettings.recording') }}</span>
           </template>
           <template v-else-if="configStore.keyboardShortcuts[action]">
             <span class="keycap-group">

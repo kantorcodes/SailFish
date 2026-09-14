@@ -949,6 +949,8 @@ export default {
   // 快捷键设置
   shortcutSettings: {
     description: '自定义应用快捷键。点击快捷键区域后按下新的组合键即可修改。',
+    groupComposer: '消息输入',
+    groupComposerHint: '只在输入框里生效。没被占用的回车（含 Shift+回车）用来换行。',
     groupOpen: '打开与新建',
     groupView: '界面切换',
     groupPane: '终端窗格',
@@ -971,8 +973,11 @@ export default {
       splitHorizontal: '左右分屏',
       splitVertical: '上下分屏',
       closePane: '关闭当前窗格',
+      sendMessage: '发送',
+      queueFollowUp: '排队到任务结束后再做',
     },
     recording: '请按下快捷键...',
+    recordingComposer: '请按下快捷键（回车可单独使用）...',
     recordingModifier: '请按下修饰键...',
     holdToTalk: '长按说话',
     voiceInputHint: '需先安装语音识别模型（设置 → AI）；也可改用系统听写（Win+H / macOS 听写）。请选不与输入法冲突的按键',
@@ -984,6 +989,7 @@ export default {
     resetAllConfirm: '确定将所有快捷键恢复为默认设置吗？',
     clear: '清除',
     conflict: '快捷键冲突：已被「{action}」使用',
+    reservedConflict: '快捷键冲突：已被关闭标签、退出或缩放占用',
   },
 
 

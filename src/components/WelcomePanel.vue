@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigStore } from '../stores/config'
+import { decorateShortcut, formatAccelerator } from '../utils/shortcut'
 import { Shuffle } from 'lucide-vue-next'
 import {
   getFeaturedExamples,
@@ -29,6 +31,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const configStore = useConfigStore()
+const sendShortcut = computed(() => formatAccelerator(configStore.keyboardShortcuts.sendMessage))
 
 const displayedExamples = ref<AssistantExample[]>(getFeaturedExamples())
 const shuffleSpinning = ref(false)
@@ -90,7 +94,7 @@ const truncateText = (text: string, maxLength: number): string => {
           <span>{{ t('ai.agentWelcome.shuffleExamples') }}</span>
         </button>
       </div>
-      <p class="scenarios-hint">{{ t('ai.agentWelcome.examplesHint') }}</p>
+      <p class="scenarios-hint">{{ t('ai.agentWelcome.examplesHint', { shortcut: decorateShortcut(sendShortcut, t('ai.hintPressSend')) }) }}</p>
       <div class="scenario-grid">
         <button
           v-for="example in displayedExamples"

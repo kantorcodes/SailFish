@@ -27,6 +27,8 @@ export interface KeyboardShortcuts {
   splitHorizontal: string
   splitVertical: string
   closePane: string
+  sendMessage: string
+  queueFollowUp: string
 }
 
 // 分屏快捷键的平台默认值：
@@ -57,6 +59,8 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   splitHorizontal: _isMac ? 'Cmd+D' : 'Ctrl+Shift+D',
   splitVertical: _isMac ? 'Cmd+Shift+D' : 'Ctrl+Shift+E',
   closePane: _isMac ? 'Cmd+Shift+W' : 'Ctrl+Shift+W',
+  sendMessage: 'Enter',
+  queueFollowUp: _isMac ? 'Cmd+Enter' : 'Ctrl+Enter',
 }
 
 // 会话分组（支持跳板机继承）
