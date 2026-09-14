@@ -2284,6 +2284,12 @@ textarea:focus {
   padding-right: calc(max(8px, var(--shell-inset-right)) + 30px);
 }
 
+/* 产出物铺满时，页签顶栏就是主区最左第一排，同样按 inset 让开红绿灯和侧栏开关 */
+.app-container .tab-view-workbench.is-artifact-focus .canvas-header {
+  padding-left: max(12px, var(--shell-inset-left));
+  transition: padding-left var(--shell-drawer-duration) var(--shell-drawer-ease);
+}
+
 /* 聊天区是主区最左那一栏，让开侧栏开关、macOS 红绿灯、以及侧栏收起后浮到主区的控件。
    让位宽度随侧栏开合改变，与侧栏用同一档节奏挪动，避免一边在滑一边在跳。 */
 .app-container .tab-view-workbench .system-info-bar {
