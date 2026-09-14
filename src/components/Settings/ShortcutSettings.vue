@@ -22,39 +22,39 @@ const COMPOSER_ACTIONS: ShortcutAction[] = ['sendMessage', 'queueFollowUp']
 const allActions: ShortcutAction[] = ([
   'sendMessage',
   'queueFollowUp',
+  'voiceInput',
   'newAssistantTab',
   'newLocalTerminal',
   'newSshConnection',
+  'openSettings',
   'toggleSidebar',
+  'toggleAiPanel',
   'navBack',
   'navForward',
-  'toggleAiPanel',
-  'toggleKnowledge',
   'openFileManager',
-  'clearTerminal',
-  'batchCommand',
-  'openSettings',
-  'aiDebugConsole',
-  'voiceInput',
   'splitHorizontal',
   'splitVertical',
   'closePane',
+  'clearTerminal',
+  'toggleKnowledge',
+  'batchCommand',
+  'aiDebugConsole',
 ] as ShortcutAction[]).filter(a => !isSteamBuild || !AI_ACTIONS.includes(a))
 
-// 按用途分组：十几条快捷键平铺成一堵墙，找不到想改的那条
+// 组内、组间都按常用程度：天天用的在前，偶尔才碰的在后
 const ACTION_GROUPS: ReadonlyArray<{ titleKey: string; descKey?: string; actions: ShortcutAction[] }> = [
   {
     titleKey: 'shortcutSettings.groupComposer',
     descKey: 'shortcutSettings.groupComposerHint',
-    actions: [...COMPOSER_ACTIONS],
+    actions: ['sendMessage', 'queueFollowUp', 'voiceInput'],
   },
   {
     titleKey: 'shortcutSettings.groupOpen',
-    actions: ['newAssistantTab', 'newLocalTerminal', 'newSshConnection', 'openFileManager', 'batchCommand', 'openSettings'],
+    actions: ['newAssistantTab', 'newLocalTerminal', 'newSshConnection', 'openSettings', 'openFileManager', 'batchCommand'],
   },
   {
     titleKey: 'shortcutSettings.groupView',
-    actions: ['toggleSidebar', 'toggleAiPanel', 'toggleKnowledge', 'navBack', 'navForward'],
+    actions: ['toggleSidebar', 'toggleAiPanel', 'navBack', 'navForward', 'toggleKnowledge'],
   },
   {
     titleKey: 'shortcutSettings.groupPane',
@@ -62,7 +62,7 @@ const ACTION_GROUPS: ReadonlyArray<{ titleKey: string; descKey?: string; actions
   },
   {
     titleKey: 'shortcutSettings.groupOther',
-    actions: ['voiceInput', 'aiDebugConsole'],
+    actions: ['aiDebugConsole'],
   },
 ]
 
