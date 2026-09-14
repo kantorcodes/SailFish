@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   exactSlashCommand,
+  formatSlashInvocation,
   matchSlashCommands,
   parseLeadingSlash,
-  primarySlashName
+  primarySlashName,
+  resolveExactSlash
 } from '../slash-commands'
 
 describe('parseLeadingSlash', () => {
@@ -33,5 +35,16 @@ describe('exactSlashCommand', () => {
     expect(exactSlashCommand('压缩')?.id).toBe('compact')
     expect(exactSlashCommand('c')).toBeNull()
     expect(primarySlashName(exactSlashCommand('压缩')!)).toBe('compact')
+  })
+})
+
+describe('formatSlashInvocation / resolveExactSlash', () => {
+  it('补全后的字可以拿去执行或排队', () => {
+    const def = exactSlashCommand('压缩')!
+    expect(formatSlashInvocation(def)).toBe('/compact')
+    expect(formatSlashInvocation(def, '重点留部署')).toBe('/compact 重点留部署')
+    expect(resolveExactSlash('/压缩 重点留部署')).toEqual({ def, hint: '重点留部署' })
+    expect(resolveExactSlash('/c')).toBeNull()
+    expect(resolveExactSlash('hello')).toBeNull()
   })
 })

@@ -22,8 +22,11 @@ import { estimateMessageStepVirtualSize } from '../utils/thinking-block'
 import { resolveWorkbenchAgentPrompt, resolveWorkbenchKind } from '../workbench'
 import { showConfirm, showAlert } from './useConfirm'
 import { toast } from './useToast'
+import { resolveExactSlash } from './slash-commands'
+import { followUpQueueShortcutLabel } from '../utils/shortcut'
 
 const log = createLogger('Agent')
+const queueShortcut = followUpQueueShortcutLabel()
 
 function getLocalSystemInfo() {
   const platform = navigator.platform.toLowerCase()
@@ -1234,15 +1237,26 @@ export function useAgentMode(
     const agentKey = getAgentKey()
     // 联络常驻线：界面旗标可能落后于后端（IM 已开工、桌面 isRunning 还没置上）。
     // 这时再走「新开一轮」会撞上 already running，回车后字就没了。
-    const injectIntoCurrentRun = isAgentRunning.value
-      || (
-        currentTab.value?.agentId === COMPANION_TAB_AGENT_ID
-        && !!agentKey
-        && agentTaskGroups.value.some(group => group.isCurrentTask)
-        && await isBackendAgentBusy(agentKey)
-      )
+    const injectIntoCurrentRun = await checkInjectIntoCurrentRun()
+    const compactSlash = resolveExactSlash(message)
     if (injectIntoCurrentRun) {
+      if (compactSlash?.def.id === 'compact' && !options?.enqueue) {
+        putBackQueued()
+        toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+        return
+      }
       if (options?.enqueue) {
+        if (compactSlash?.def.id === 'compact') {
+          followUpQueue.value = [
+            ...followUpQueue.value,
+            {
+              id: `followup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              message
+            }
+          ]
+          inputText.value = ''
+          return
+        }
         const attachments = attachmentCallbacks?.getAttachments() || []
         const parsedDocs = attachmentCallbacks?.getParsedDocs?.() || []
         const documentContext = await getDocumentContext()
@@ -1310,6 +1324,22 @@ export function useAgentMode(
         if (images.length > 0) imageCallbacks?.clearImages()
       } else {
         terminalStore.removeAgentStep(tabId, optimisticId)
+      }
+      return
+    }
+
+    if (compactSlash?.def.id === 'compact') {
+      if (!queued) inputText.value = ''
+      const result = await compactContext(compactSlash.hint)
+      if (!result.ok) {
+        if (result.reason === 'running') {
+          putBackQueued()
+          toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+        } else if (result.reason === 'failed') {
+          toast.error(t('ai.slashCompactFailed'))
+        } else {
+          toast.info(t('ai.slashCompactEmpty'))
+        }
       }
       return
     }
@@ -1608,7 +1638,17 @@ export function useAgentMode(
       })
     } finally {
       terminalStore.finalizeAgentRunState(tabId)
+      if (!isAgentRunning.value) scheduleNextFollowUp(tabId)
     }
+  }
+
+  const checkInjectIntoCurrentRun = async (): Promise<boolean> => {
+    if (isAgentRunning.value) return true
+    const key = getAgentKey()
+    return currentTab.value?.agentId === COMPANION_TAB_AGENT_ID
+      && !!key
+      && agentTaskGroups.value.some(group => group.isCurrentTask)
+      && await isBackendAgentBusy(key)
   }
 
   /** 追加进当前这场还在跑的对话；不中止任务、不另起一轮。 */
@@ -1668,9 +1708,24 @@ export function useAgentMode(
   const insertFollowUp = async (id: string) => {
     if (editingFollowUpId.value === id) return
     const index = followUpQueue.value.findIndex(entry => entry.id === id)
+    const queuedItem = followUpQueue.value[index]
+    if (
+      queuedItem &&
+      resolveExactSlash(queuedItem.message)?.def.id === 'compact' &&
+      await checkInjectIntoCurrentRun()
+    ) {
+      toast.warning(t('ai.slashCompactCannotInsert'))
+      return
+    }
     const item = takeFollowUp(id)
     if (!item) return
     cancelFollowUpDrain()
+
+    if (resolveExactSlash(item.message)?.def.id === 'compact') {
+      log.info('插入排队压缩为下一件任务:', item.message)
+      void runAgent(item.message, { queuedPayload: item })
+      return
+    }
 
     if (isAgentRunning.value) {
       const success = await appendToCurrentConversation({

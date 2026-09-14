@@ -93,6 +93,21 @@ export function matchAccelerator(event: KeyboardEvent, accelerator: string): boo
  * 设置面板里的 keycap 渲染走另一套 (acceleratorToKeys)，那里需要数组，所以两个工具
  * 各自管自己的形态——这里专管菜单/提示场景的紧凑文本。
  */
+export function isMacPlatform(): boolean {
+  return typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
+}
+
+/** 运行中把下一句排到结束后再做：mac 是 ⌘↵，其它是 Ctrl+Enter。 */
+export function followUpQueueShortcutLabel(): string {
+  return isMacPlatform() ? '⌘↵' : 'Ctrl+Enter'
+}
+
+export function isFollowUpQueueChord(event: KeyboardEvent): boolean {
+  return !event.shiftKey &&
+    !event.altKey &&
+    (isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
+}
+
 export function formatAccelerator(accelerator: string): string {
   if (!accelerator) return ''
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')

@@ -39,3 +39,20 @@ export function exactSlashCommand(name: string, defs: SlashCommandDef[] = SLASH_
 export function primarySlashName(def: SlashCommandDef): string {
   return def.names[0]
 }
+
+export function formatSlashInvocation(def: SlashCommandDef, hint?: string): string {
+  const extra = hint?.trim()
+  return extra ? `/${primarySlashName(def)} ${extra}` : `/${primarySlashName(def)}`
+}
+
+/** 输入已经是完整命令名（`/compact` / `/压缩`）时才能拿去执行或排队。 */
+export function resolveExactSlash(text: string, defs: SlashCommandDef[] = SLASH_COMMANDS): {
+  def: SlashCommandDef
+  hint: string
+} | null {
+  const parsed = parseLeadingSlash(text.trim())
+  if (!parsed) return null
+  const def = exactSlashCommand(parsed.name, defs)
+  if (!def) return null
+  return { def, hint: parsed.rest }
+}

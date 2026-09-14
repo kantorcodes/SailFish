@@ -5,12 +5,14 @@ import { useRandomPlaceholder } from '../composables/useRandomPlaceholder'
 import { X, Plus, Square, ArrowUp, Check, Mic, MicOff, Loader2, Volume2, ListTree, Pencil, CornerDownLeft, GripVertical, Sparkles } from 'lucide-vue-next'
 import { useMentions } from '../composables/useMentions'
 import {
-  exactSlashCommand,
+  formatSlashInvocation,
   matchSlashCommands,
   parseLeadingSlash,
   primarySlashName,
+  resolveExactSlash,
   type SlashCommandDef
 } from '../composables/slash-commands'
+import { followUpQueueShortcutLabel, isFollowUpQueueChord } from '../utils/shortcut'
 import { toast } from '../composables/useToast'
 import { useComposerQuoteStore } from '../stores/composer-quote'
 import { useConversationSkillsStore } from '../stores/conversation-skills'
@@ -516,8 +518,7 @@ const { value: randomPlaceholder, pick: pickRandomPlaceholder } = useRandomPlace
   () => props.placeholderFallbackKey ?? 'ai.inputPlaceholderAgent'
 )
 
-const isMacShortcut = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
-const queueShortcut = isMacShortcut ? '⌘↵' : 'Ctrl+Enter'
+const queueShortcut = followUpQueueShortcutLabel()
 
 const followUpItems = computed(() => props.followUpQueue ?? [])
 const isEditingFollowUp = computed(() => !!props.isEditingFollowUp)
@@ -833,7 +834,7 @@ const completeSlash = (def: SlashCommandDef) => {
 
 const applySlashResult = (result: { ok: true; freedTokens: number } | { ok: false; reason: string }) => {
   if (result.ok) return
-  if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning'))
+  if (result.reason === 'running') toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
   else if (result.reason === 'failed') toast.error(t('ai.slashCompactFailed'))
   else toast.info(t('ai.slashCompactEmpty'))
 }
@@ -1172,8 +1173,17 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
     }
     if (event.key === 'Enter' && !event.shiftKey && !isComposing.value) {
       event.preventDefault()
+      if (isFollowUpQueueChord(event)) {
+        void handleSend({ enqueue: props.isAgentRunning && !isEditingFollowUp.value })
+        return
+      }
       const selected = slashMatches.value[slashSelectedIndex.value]
-      if (selected) void runSlashCommand(selected, parsedSlash.value?.rest)
+      if (!selected) return
+      if (resolveExactSlash(inputText.value.trim())) {
+        void handleSend()
+        return
+      }
+      completeSlash(selected)
       return
     }
   }
@@ -1205,11 +1215,7 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
   }
 
   // 只认宣传出去的那个组合键：mac 是 ⌘、其它是 Ctrl，且不带 Shift/Alt
-  const isQueueChord =
-    !event.shiftKey &&
-    !event.altKey &&
-    (isMacShortcut ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
-  if (isQueueChord) {
+  if (isFollowUpQueueChord(event)) {
     event.preventDefault()
     void handleSend({ enqueue: props.isAgentRunning })
     return
@@ -1228,6 +1234,32 @@ const handleSend = async (opts?: { enqueue?: boolean }) => {
     return
   }
   closeMentionMenu()
+
+  const rawInput = inputText.value.trim()
+  const exactSlash = !isEditingFollowUp.value ? resolveExactSlash(rawInput) : null
+  if (exactSlash) {
+    const commandText = formatSlashInvocation(exactSlash.def, exactSlash.hint)
+    if (opts?.enqueue) {
+      inputText.value = ''
+      void pickRandomPlaceholder()
+      props.clearTabError()
+      await props.submitMessage(commandText, { enqueue: true })
+      return
+    }
+    if (props.isAgentRunning) {
+      toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcut }))
+      return
+    }
+    await runSlashCommand(exactSlash.def, exactSlash.hint)
+    return
+  }
+  if (!isEditingFollowUp.value && slashHintVisible.value) {
+    const selected = slashMatches.value[slashSelectedIndex.value]
+    if (selected) {
+      completeSlash(selected)
+      return
+    }
+  }
 
   const quotesSnapshot = [...quoteStore.getSnippets(props.currentTabId)]
   // 编辑排队不吃选区作用域——保存时沿用入队快照
@@ -1274,17 +1306,6 @@ const handleSend = async (opts?: { enqueue?: boolean }) => {
     quoteStore.clearSnippets(props.currentTabId)
     await props.submitMessage('', {})
     return
-  }
-
-  const rawInput = inputText.value.trim()
-  const slash = parseLeadingSlash(rawInput)
-  if (!opts?.enqueue && !isEditingFollowUp.value && slash) {
-    const exact = exactSlashCommand(slash.name)
-    const selected = exact ?? (slashHintVisible.value ? slashMatches.value[slashSelectedIndex.value] : undefined)
-    if (selected) {
-      await runSlashCommand(selected, slash.rest)
-      return
-    }
   }
 
   inputText.value = ''
