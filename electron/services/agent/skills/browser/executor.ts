@@ -48,6 +48,7 @@ import {
   ensureBridgeSessionIfPreferred,
 } from './bridge-executor'
 import { closeBridgeSession, hasBridgeSession } from './bridge-session'
+import { resolveBrowserSessionKey } from './session-key'
 
 /**
  * 执行浏览器技能工具
@@ -60,11 +61,14 @@ export async function executeBrowserTool(
   config: AgentConfig,
   executor: ToolExecutorConfig
 ): Promise<ToolResult> {
+  // 会话跟对话走。助手没有窗格时 ptyId 为空，不能用空串当钥匙，否则两场对话会抢同一条。
+  const sessionKey = resolveBrowserSessionKey(ptyId, executor)
+
   // Playwright 独立窗口一旦打开，后续工具必须继续走它。
   // 否则 ensureBridgeSessionIfPreferred 会因扩展在线而重建 attach，把 snapshot/evaluate 悄悄切回去。
-  const playwrightOpen = isSessionOpen(ptyId)
-  if (playwrightOpen && hasBridgeSession(ptyId)) {
-    closeBridgeSession(ptyId)
+  const playwrightOpen = isSessionOpen(sessionKey)
+  if (playwrightOpen && hasBridgeSession(sessionKey)) {
+    closeBridgeSession(sessionKey)
   }
 
   if (
@@ -74,39 +78,39 @@ export async function executeBrowserTool(
     toolName !== 'browser_list_profiles' &&
     toolName !== 'browser_save_login'
   ) {
-    await ensureBridgeSessionIfPreferred(ptyId, args, playwrightOpen)
+    await ensureBridgeSessionIfPreferred(sessionKey, args, playwrightOpen)
   }
 
-  if (toolName !== 'browser_launch' && shouldUseBridge(ptyId, playwrightOpen)) {
+  if (toolName !== 'browser_launch' && shouldUseBridge(sessionKey, playwrightOpen)) {
     switch (toolName) {
       case 'browser_snapshot':
-        return bridgeBrowserSnapshot(ptyId, args, executor)
+        return bridgeBrowserSnapshot(sessionKey, args, executor)
       case 'browser_goto':
-        return bridgeBrowserGoto(ptyId, args, executor)
+        return bridgeBrowserGoto(sessionKey, args, executor)
       case 'browser_click':
-        return bridgeBrowserClick(ptyId, args, executor)
+        return bridgeBrowserClick(sessionKey, args, executor)
       case 'browser_type':
-        return bridgeBrowserType(ptyId, args, executor)
+        return bridgeBrowserType(sessionKey, args, executor)
       case 'browser_list_tabs':
-        return bridgeBrowserListTabs(ptyId, executor)
+        return bridgeBrowserListTabs(sessionKey, executor)
       case 'browser_switch_tab':
-        return bridgeBrowserSwitchTab(ptyId, args, executor)
+        return bridgeBrowserSwitchTab(sessionKey, args, executor)
       case 'browser_close_tab':
-        return bridgeBrowserCloseTab(ptyId, args, executor)
+        return bridgeBrowserCloseTab(sessionKey, args, executor)
       case 'browser_scroll':
-        return bridgeBrowserScroll(ptyId, args, executor)
+        return bridgeBrowserScroll(sessionKey, args, executor)
       case 'browser_read_article':
-        return bridgeBrowserReadArticle(ptyId, args)
+        return bridgeBrowserReadArticle(sessionKey, args)
       case 'browser_read_page':
-        return bridgeBrowserReadPage(ptyId, args)
+        return bridgeBrowserReadPage(sessionKey, args)
       case 'browser_get_content':
-        return bridgeBrowserGetContent(ptyId, args)
+        return bridgeBrowserGetContent(sessionKey, args)
       case 'browser_evaluate':
-        return bridgeBrowserEvaluate(ptyId, args)
+        return bridgeBrowserEvaluate(sessionKey, args)
       case 'browser_wait':
-        return bridgeBrowserWait(ptyId, args)
+        return bridgeBrowserWait(sessionKey, args)
       case 'browser_close':
-        return bridgeBrowserClose(ptyId)
+        return bridgeBrowserClose(sessionKey)
       case 'browser_screenshot':
         return {
           success: false,
@@ -126,41 +130,41 @@ export async function executeBrowserTool(
 
   switch (toolName) {
     case 'browser_launch':
-      return await browserLaunch(ptyId, args, executor)
+      return await browserLaunch(sessionKey, args, executor)
     case 'browser_snapshot':
-      return await browserSnapshot(ptyId, args, executor)
+      return await browserSnapshot(sessionKey, args, executor)
     case 'browser_goto':
-      return await browserGoto(ptyId, args, executor)
+      return await browserGoto(sessionKey, args, executor)
     case 'browser_screenshot':
-      return await browserScreenshot(ptyId, args, executor)
+      return await browserScreenshot(sessionKey, args, executor, ptyId)
     case 'browser_read_article':
-      return await browserReadArticle(ptyId, args, executor)
+      return await browserReadArticle(sessionKey, args, executor)
     case 'browser_read_page':
-      return await browserReadPage(ptyId, args, executor)
+      return await browserReadPage(sessionKey, args, executor)
     case 'browser_get_content':
-      return await browserGetContent(ptyId, args, executor)
+      return await browserGetContent(sessionKey, args, executor)
     case 'browser_click':
-      return await browserClick(ptyId, args, executor)
+      return await browserClick(sessionKey, args, executor)
     case 'browser_type':
-      return await browserType(ptyId, args, executor)
+      return await browserType(sessionKey, args, executor)
     case 'browser_scroll':
-      return await browserScroll(ptyId, args, executor)
+      return await browserScroll(sessionKey, args, executor)
     case 'browser_wait':
-      return await browserWait(ptyId, args, executor)
+      return await browserWait(sessionKey, args, executor)
     case 'browser_evaluate':
-      return await browserEvaluate(ptyId, args, executor)
+      return await browserEvaluate(sessionKey, args, executor)
     case 'browser_list_tabs':
-      return await browserListTabs(ptyId, args, executor)
+      return await browserListTabs(sessionKey, args, executor)
     case 'browser_switch_tab':
-      return await browserSwitchTab(ptyId, args, executor)
+      return await browserSwitchTab(sessionKey, args, executor)
     case 'browser_close_tab':
-      return await browserCloseTab(ptyId, args, executor)
+      return await browserCloseTab(sessionKey, args, executor)
     case 'browser_save_login':
-      return await browserSaveLogin(ptyId, args, executor)
+      return await browserSaveLogin(sessionKey, args, executor)
     case 'browser_list_profiles':
-      return await browserListProfiles(ptyId, args, executor)
+      return await browserListProfiles(sessionKey, args, executor)
     case 'browser_close':
-      return await browserClose(ptyId, args, executor)
+      return await browserClose(sessionKey, args, executor)
     default:
       return { success: false, output: '', error: t('error.unknown_tool', { name: toolName }) }
   }
@@ -449,7 +453,8 @@ async function browserGoto(
 async function browserScreenshot(
   ptyId: string,
   args: Record<string, unknown>,
-  executor: ToolExecutorConfig
+  executor: ToolExecutorConfig,
+  pathPtyId: string,
 ): Promise<ToolResult> {
   const savePath = args.path as string | undefined
   const fullPage = args.full_page as boolean | undefined
@@ -469,7 +474,7 @@ async function browserScreenshot(
     
     // 确定保存路径
     const screenshotPath = savePath 
-      ? resolvePath(ptyId, savePath)
+      ? resolvePath(pathPtyId, savePath)
       : path.join(os.tmpdir(), `screenshot_${Date.now()}.png`)
 
     if (selector) {

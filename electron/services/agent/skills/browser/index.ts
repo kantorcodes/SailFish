@@ -6,8 +6,8 @@
 import { registerSkill } from '../registry'
 import type { Skill } from '../types'
 import { browserTools } from './tools'
-import { closeAllSessions } from './session'
-import { closeAllBridgeSessions } from './bridge-session'
+import { closeSession } from './session'
+import { closeBridgeSession } from './bridge-session'
 import { createLogger } from '../../../../utils/logger'
 
 const log = createLogger('BrowserSkill')
@@ -23,10 +23,15 @@ const browserSkill: Skill = {
     log.info('Initialized')
   },
   
-  async cleanup() {
-    await closeAllSessions()
-    closeAllBridgeSessions()
-    log.info('Cleaned up')
+  async cleanup(ownerId?: string) {
+    if (ownerId) {
+      await closeSession(ownerId)
+      closeBridgeSession(ownerId)
+      log.info(`Cleaned up sessions for ${ownerId}`)
+      return
+    }
+    // 技能定义是进程单例。没有主人时不能关全部窗口，否则一场对话卸技能会拆掉另一场的浏览器。
+    log.info('Cleanup skipped without owner (refusing to close other conversations\' browsers)')
   }
 }
 

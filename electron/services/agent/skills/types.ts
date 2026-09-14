@@ -21,8 +21,8 @@ export interface Skill {
   content?: string
   /** 初始化函数（可选，用于动态 import 依赖库） */
   init?: () => Promise<void>
-  /** 清理函数（可选，用于关闭未保存的文件等资源） */
-  cleanup?: () => Promise<void>
+  /** 清理函数（可选）。主人标识只关这场对话的资源，不能拆掉别的对话还在用的窗口 */
+  cleanup?: (ownerId?: string) => Promise<void>
 }
 
 /**

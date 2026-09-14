@@ -402,7 +402,7 @@ export abstract class Agent {
    */
   protected getSkillSession(): SkillSession {
     if (!this._skillSession) {
-      this._skillSession = createSkillSession(this.getAvailableTools())
+      this._skillSession = createSkillSession(this.getAvailableTools(), this._agentId)
       this._skillSession.setOnChange(() => this._skillsChangedHook?.())
     }
     return this._skillSession

@@ -1,8 +1,15 @@
 # Browser Bridge 服务 SPEC
 
-> Last verified: 2026-07-23
+> Last verified: 2026-09-14
 
 ## 设计目标
+
+### 两场对话同时用浏览器不能互相抢（2026-09-14）
+
+- **问题**：两个对话同时操作浏览器时，一边吸附用户火狐、一边开独立 Chrome，会互相动手、互相关掉对方的窗口。
+- **成功标准**：每场对话各自绑自己的那一档、自己的窗口。没有终端窗格的助手对话也必须分开，不能因为少了窗格编号就收成同一条。一场对话关掉或卸掉浏览器，不能拆掉另一场还在用的窗口。同一场对话里派出去帮忙的伙计，继续用这场已经打开的浏览器，不另起一条。
+- **关键取舍**：浏览器会话跟对话走，不跟眼前那扇终端窗格走。吸附同一只用户火狐时，两场对话仍是两条独立的遥控关系（各自记自己的标签和要点），命令只打到这场选定的浏览器。
+- **明确不做**：不因此让两场对话共用一个独立窗口；不把用户日常火狐拆成两份配置；不把伙计的浏览器从这场对话里拆出去。
 
 ### Agent 能看见两档浏览器能力（2026-08-15）
 
@@ -98,6 +105,7 @@ legacy `list_tabs` / `switch_tab` / `goto` / `close_tab` 内部委托 `shared/ta
 - `browser_launch` 增加 `attach: true` 或 `mode: 'attach'`：连接用户浏览器，不启动 Playwright
 - 显式打开独立浏览器窗口后，后续操作必须继续走这个窗口，直到关掉或再次明确要求连回用户浏览器；不能因为浏览器助手在线就把后续操作悄悄切回去
 - `browser_launch.browser`：`auto` | `firefox` | `chromium`（`chrome`/`edge` 别名）；双开时必须显式指定；会话绑定后后续 `browser_*` 走同一路由
+- 每场对话各自一条浏览器会话；助手没有终端窗格时也按对话分开，不能收成同一条
 - attach 会话存于 `bridge-session.ts`（含 `origin` + `browserTarget` + `extensionPing`），与 Playwright `session.ts` 并行
 - `browser_get_content`（auto/article）：扩展 `page_html` → 桌面端 `extractPageContentFromHtml`
 - 未 attach 时行为不变

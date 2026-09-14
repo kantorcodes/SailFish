@@ -20,9 +20,12 @@ export class SkillSession implements SkillSessionManager {
   /** 核心工具（始终可用） */
   private coreTools: ToolDefinition[] = []
   private onChange?: () => void
+  /** 这场对话的主人标识；卸技能时只关自己的资源 */
+  private readonly ownerId?: string
 
-  constructor(coreTools: ToolDefinition[]) {
+  constructor(coreTools: ToolDefinition[], ownerId?: string) {
     this.coreTools = coreTools
+    this.ownerId = ownerId
   }
 
   setOnChange(onChange: () => void): void {
@@ -109,7 +112,7 @@ export class SkillSession implements SkillSessionManager {
     const skill = getSkill(skillId)
     if (skill?.cleanup) {
       try {
-        await skill.cleanup()
+        await skill.cleanup(this.ownerId)
       } catch (error) {
         log.error(`Error cleaning up skill "${skillId}":`, error)
       }
@@ -200,7 +203,7 @@ export class SkillSession implements SkillSessionManager {
 /**
  * 创建新的技能会话
  */
-export function createSkillSession(coreTools: ToolDefinition[]): SkillSession {
-  return new SkillSession(coreTools)
+export function createSkillSession(coreTools: ToolDefinition[], ownerId?: string): SkillSession {
+  return new SkillSession(coreTools, ownerId)
 }
 
