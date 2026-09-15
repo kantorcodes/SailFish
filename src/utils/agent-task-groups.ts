@@ -19,6 +19,20 @@ export interface AgentTaskGroupDraft {
 
 const AFTER_END_STEP_TYPES = new Set(['tool_call', 'tool_result', 'thinking'])
 
+export function isFailureFinalResult(result?: string): boolean {
+  if (!result) return false
+  return result.startsWith('❌') || result.startsWith('⚠️')
+}
+
+/** 成功收场、但没说过话（如人主动压缩）：收场尾注要挂在过程最后一格。 */
+export function groupNeedsProcessCompleteFooter(group: {
+  finalResult?: string
+  steps: ReadonlyArray<{ type: string }>
+}): boolean {
+  if (!group.finalResult || isFailureFinalResult(group.finalResult)) return false
+  return !group.steps.some(s => s.type === 'message')
+}
+
 export function groupAgentSteps(allSteps: readonly AgentStep[]): {
   groups: AgentTaskGroupDraft[]
   orphanedStepCount: number

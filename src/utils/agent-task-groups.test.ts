@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentStep } from '@shared/types'
-import { groupAgentSteps } from './agent-task-groups'
+import { groupAgentSteps, groupNeedsProcessCompleteFooter } from './agent-task-groups'
 
 let seq = 0
 function step(partial: Partial<AgentStep> & Pick<AgentStep, 'type' | 'content'>): AgentStep {
@@ -55,5 +55,28 @@ describe('groupAgentSteps', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].userTask).toBe('先做完')
     expect(groups[0].afterEndSteps).toHaveLength(1)
+  })
+})
+
+describe('groupNeedsProcessCompleteFooter', () => {
+  it('is true when a successful turn never spoke', () => {
+    expect(groupNeedsProcessCompleteFooter({
+      finalResult: '上下文已压缩',
+      steps: [{ type: 'tool_call' }, { type: 'tool_result' }],
+    })).toBe(true)
+  })
+
+  it('is false when it already said something', () => {
+    expect(groupNeedsProcessCompleteFooter({
+      finalResult: '好了',
+      steps: [{ type: 'message' }],
+    })).toBe(false)
+  })
+
+  it('is false for a failed turn', () => {
+    expect(groupNeedsProcessCompleteFooter({
+      finalResult: '❌ 任务失败',
+      steps: [{ type: 'tool_call' }],
+    })).toBe(false)
   })
 })

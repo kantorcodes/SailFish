@@ -247,7 +247,12 @@ const toggleThinkingExpand = async (stepId: string, anchorEl?: HTMLElement) => {
 // 任务完成尾注的显示条件：group 完成（finalResult 存在且非失败/中断）+ 当前是 group 内最后一个
 // 可见的 message step。把"✓ 任务完成"作为最后一个 message step 的内部尾巴渲染，避免单独成 item
 // 引起列表重排跳动。
-const shouldShowTaskCompleteFooter = (item: { step?: AgentStep; group?: { finalResult?: string; steps: AgentStep[] } }): boolean => {
+const shouldShowTaskCompleteFooter = (item: {
+  step?: AgentStep
+  group?: { finalResult?: string; steps: AgentStep[] }
+  showTaskCompleteFooter?: boolean
+}): boolean => {
+  if (item.showTaskCompleteFooter) return true
   if (!item.step || !item.group) return false
   const finalResult = item.group.finalResult
   if (!finalResult) return false
@@ -2912,6 +2917,25 @@ watch(() => props.tabId, async (newTabId, oldTabId) => {
                         @contextmenu="openImageContextMenu($event, imgUrl)"
                       />
                     </div>
+                    <div
+                      v-if="item.step!.type !== 'message' && item.part !== 'thinking' && shouldShowTaskCompleteFooter(item)"
+                      class="agent-final-footer"
+                      :class="{ 'agent-final-footer--first-show': isFooterFirstShow(item.group?.id) }"
+                      @animationend="markFooterAnimated(item.group?.id)"
+                    >
+                      <span class="agent-final-footer-icon">✓</span>
+                      <span>{{ getTaskCompleteFooterLabel(item.group?.id) }}</span>
+                      <button
+                        v-if="canShowGroupMenu(item.group)"
+                        type="button"
+                        class="agent-group-menu-trigger"
+                        :class="{ 'is-open': openGroupMenuId === item.group!.id }"
+                        :title="t('ai.fork.tooltip')"
+                        @click.stop="toggleGroupMenu(item.group, $event)"
+                      >
+                        <MoreHorizontal :size="14" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3089,6 +3113,25 @@ watch(() => props.tabId, async (newTabId, oldTabId) => {
                 >
                   <ReuseStepRow v-for="child in item.children" :key="child.id" :item="child" />
                 </ProcessTurnFold>
+                <div
+                  v-if="shouldShowTaskCompleteFooter(item)"
+                  class="agent-final-footer"
+                  :class="{ 'agent-final-footer--first-show': isFooterFirstShow(item.group?.id) }"
+                  @animationend="markFooterAnimated(item.group?.id)"
+                >
+                  <span class="agent-final-footer-icon">✓</span>
+                  <span>{{ getTaskCompleteFooterLabel(item.group?.id) }}</span>
+                  <button
+                    v-if="canShowGroupMenu(item.group)"
+                    type="button"
+                    class="agent-group-menu-trigger"
+                    :class="{ 'is-open': openGroupMenuId === item.group!.id }"
+                    :title="t('ai.fork.tooltip')"
+                    @click.stop="toggleGroupMenu(item.group, $event)"
+                  >
+                    <MoreHorizontal :size="14" />
+                  </button>
+                </div>
               </div>
 
               <ReuseStepRow v-else-if="item.type === 'step'" :item="item" />
