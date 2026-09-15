@@ -941,34 +941,36 @@ describe('Edge cases', () => {
 })
 
 describe('上下文开销', () => {
-  it('默认适中：讲清后面还长时先交接的账，并点名同一扇门', () => {
+  it('默认适中：同一本账，取向写在最后一句', () => {
     const prompt = new PromptBuilder({ context: createMockContext() }).build()
-    expect(prompt).toContain('上下文开销')
-    expect(prompt).toContain('拆掉当前缓存')
-    expect(prompt).toContain('总账往往更便宜')
-    expect(prompt).toContain('`context`')
+    expect(prompt).toContain('**经济性**')
+    expect(prompt).toContain('1/10到1/30')
+    expect(prompt).toContain('总账可能更便宜')
+    expect(prompt).toContain('用户希望你在适当时候主动压缩上下文')
+    expect(prompt).not.toContain('较为积极地主动压缩')
+    expect(prompt).not.toContain('只在非常必要的时候')
   })
 
-  it('较多：更勤快交接', () => {
+  it('较多：同一本账，较为积极', () => {
     const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'more' }).build()
-    expect(prompt).toContain('更勤快')
-    expect(prompt).toContain('宁可先压')
-    expect(prompt).toContain('`context`')
-    expect(prompt).not.toContain('总账往往更便宜')
+    expect(prompt).toContain('用户希望你较为积极地主动压缩上下文')
+    expect(prompt).toContain('总账可能更便宜')
+    expect(prompt).not.toContain('在适当时候主动压缩')
+    expect(prompt).not.toContain('只在非常必要的时候')
   })
 
-  it('较少：拿不准就先不压', () => {
+  it('较少：同一本账，只在非常必要时', () => {
     const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'less' }).build()
-    expect(prompt).toContain('少自己压')
-    expect(prompt).toContain('拿不准就先不压')
-    expect(prompt).toContain('`context`')
+    expect(prompt).toContain('用户希望你只在非常必要的时候主动压缩上下文')
+    expect(prompt).toContain('总账可能更便宜')
+    expect(prompt).not.toContain('较为积极地主动压缩')
+    expect(prompt).not.toContain('在适当时候主动压缩')
   })
 
-  it('不主动压缩：不要自己 compress', () => {
+  it('不主动压缩：不写经济性说明', () => {
     const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'off' }).build()
-    expect(prompt).toContain('不要调用 `context` 去做 compress')
-    expect(prompt).not.toContain('总账往往更便宜')
-    expect(prompt).not.toContain('更勤快')
+    expect(prompt).not.toContain('**经济性**')
+    expect(prompt).not.toContain('总账可能更便宜')
   })
 
   it('脏值回落到适中', () => {
@@ -978,7 +980,7 @@ describe('上下文开销', () => {
       context: createMockContext(),
       proactiveCompact: normalizeProactiveCompact('nope'),
     }).build()
-    expect(prompt).toContain('总账往往更便宜')
+    expect(prompt).toContain('总账可能更便宜')
   })
 })
 
