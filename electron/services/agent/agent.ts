@@ -271,8 +271,8 @@ export abstract class Agent {
   /** 上下文窗口管理协作者(token估算/压力/压缩/工具序列修复)。构造时装配,见 _contextWindow。 */
   private _contextWindow!: ContextWindowManager
 
-  /** 上下文管理功能是否已激活:委托给 ContextWindowManager(用量 >= 85% 时激活,且不回退)。
-   *  SailFish.getAvailableTools 读此标志决定是否注册 compress_context 等工具。 */
+  /** 用量是否已到高水位：委托给 ContextWindowManager（≥85% 后不回退）。
+   *  SailFish.getAvailableTools 用它决定要不要带上按水位才出现的附属能力。 */
   protected get contextManagementEnabled(): boolean { return this._contextWindow.enabled }
   
   // ==================== 会话追踪（跨 Run 持久化） ====================
@@ -335,6 +335,8 @@ export abstract class Agent {
       invalidateTokenAnchor: () => this._conversation?.setLastPromptTokens(undefined),
       measureMessageRange: (from, to) => this._conversation?.measureMessageRange(from, to),
       getTools: () => this.getAvailableTools(),
+      shouldNudgeModelToCompact: () =>
+        !this.isSubAgent() && this.services.configService?.getProactiveCompact?.() !== 'off',
       summarizeMessages: (opts) => this.summarizeForCompression(opts),
       reportUsage: (tokens, cacheHitRate) => {
         // updatePressure 拿到 API 精确值时刷新上下文栏（不靠 lastStep）。
@@ -2471,6 +2473,7 @@ export abstract class Agent {
       conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
       contextKnowledgeDoc,
       aiRules: this.services.configService?.getAiRules() ?? '',
+      proactiveCompact: this.services.configService?.getProactiveCompact?.(),
       agentName: this.services.configService?.getAgentName() ?? '',
       taskSummaries,
       relatedTaskDigests,

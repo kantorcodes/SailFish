@@ -2,12 +2,12 @@ import Store from 'electron-store'
 import fs from 'fs'
 import path from 'path'
 import { app, safeStorage } from 'electron'
-import type { AiModelType, AiProfile, ApiFormat, CommandRiskPolicy, ExecutionMode, IMProcessMode, JumpHostConfig, LocaleType, McpServerConfig, RiskLevel, SessionSortBy } from '@shared/types'
+import type { AiModelType, AiProfile, ApiFormat, CommandRiskPolicy, ExecutionMode, IMProcessMode, JumpHostConfig, LocaleType, McpServerConfig, ProactiveCompactStyle, RiskLevel, SessionSortBy } from '@shared/types'
 import type { KnowledgeSettings } from './knowledge/types'
 import { DEFAULT_KNOWLEDGE_SETTINGS } from './knowledge/types'
 import { DEFAULT_CONTEXT_KNOWLEDGE_MAX_CHARS } from './knowledge/context-knowledge-budget'
 import type { CueSoundSettings, TtsSettings, UiThemeMode, UiThemeName, WebSearchSettings } from '@shared/types'
-import { COMMAND_RISK_POLICY_ALLOWED_LEVELS, DEFAULT_COMMAND_RISK_POLICY, DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_TTS_SETTINGS, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, DEFAULT_WEB_SEARCH_SETTINGS } from '@shared/types'
+import { COMMAND_RISK_POLICY_ALLOWED_LEVELS, DEFAULT_COMMAND_RISK_POLICY, DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_PROACTIVE_COMPACT, DEFAULT_TTS_SETTINGS, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, DEFAULT_WEB_SEARCH_SETTINGS, normalizeProactiveCompact } from '@shared/types'
 import { createLogger, type LogLevel } from '../utils/logger'
 import { normalizeTerminalSettings, normalizeKeyboardShortcuts } from '../utils/normalize'
 import {
@@ -248,6 +248,8 @@ interface StoreSchema {
   keyboardShortcuts: KeyboardShortcuts  // 自定义快捷键
   autoVisionModel: boolean  // 自动使用视觉模型：遇到图片时自动切换到关联的视觉模型
   autoFailoverModel: boolean  // 自动切换可用模型：当前模型重试仍失败时从列表第一个开始换（只改这场对话）
+  /** 它有多主动地把已经用不上的过程先交接掉 */
+  proactiveCompact: ProactiveCompactStyle
   schemaVersion: number  // 数据 schema 版本号，用于迁移框架追踪已执行的 migration
   // 堡垒机（JumpServer）集成
   bastionUrl: string              // JumpServer 地址
@@ -368,6 +370,7 @@ const defaultConfig: StoreSchema = {
   keyboardShortcuts: { ...DEFAULT_KEYBOARD_SHORTCUTS },
   autoVisionModel: true,
   autoFailoverModel: true,
+  proactiveCompact: DEFAULT_PROACTIVE_COMPACT,
   schemaVersion: 0,
   bastionUrl: '',
   bastionUsername: '',
@@ -1163,6 +1166,10 @@ export class ConfigService {
    */
   getAiRules(): string {
     return this.store.get('aiRules') || ''
+  }
+
+  getProactiveCompact(): ProactiveCompactStyle {
+    return normalizeProactiveCompact(this.store.get('proactiveCompact'))
   }
 
   /**

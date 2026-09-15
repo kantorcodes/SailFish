@@ -6,6 +6,7 @@
 export type {
   TerminalType,
   ExecutionMode,
+  ProactiveCompactStyle,
   RemoteChannel,
   RiskLevel,
   PlanStepStatus,
@@ -415,6 +416,8 @@ export interface PromptOptions {
   contextKnowledgeDoc?: string
   /** 用户自定义 AI 规则 */
   aiRules?: string
+  /** 它有多主动地把已经用不上的过程先交接掉 */
+  proactiveCompact?: import('@shared/types').ProactiveCompactStyle
   /** AI 名字 */
   agentName?: string
   /** 任务历史摘要 */

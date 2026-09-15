@@ -49,6 +49,8 @@ describe('伙计工具面', () => {
     expect(names).not.toContain('interrupt_agent')
     expect(names).not.toContain('manage_pane')
     expect(names).not.toContain('send_to_chat')
+    expect(names).not.toContain('context')
+    expect(names).not.toContain('recall_compressed')
   })
 
   it('伙计看到的 exec 说明是拦住，不是确认或自由放行', () => {

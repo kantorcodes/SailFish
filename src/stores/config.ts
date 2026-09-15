@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { AiModelType, AiProfile, ApiFormat, JumpHostConfig, SessionSortBy, SshEncoding, SystemColorScheme, UiThemeMode } from '@shared/types'
-import { clampUiZoomFactor, DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, normalizeCueSoundSettings, resolveEffectiveUiTheme, UI_ZOOM_DEFAULT } from '@shared/types'
+import type { AiModelType, AiProfile, ApiFormat, JumpHostConfig, ProactiveCompactStyle, SessionSortBy, SshEncoding, SystemColorScheme, UiThemeMode } from '@shared/types'
+import { clampUiZoomFactor, DEFAULT_CUE_SOUND_SETTINGS, DEFAULT_PROACTIVE_COMPACT, DEFAULT_UI_THEME, DEFAULT_UI_THEME_MODE, normalizeCueSoundSettings, normalizeProactiveCompact, resolveEffectiveUiTheme, UI_ZOOM_DEFAULT } from '@shared/types'
 import { setLocale, type LocaleType } from '../i18n'
 import { uiThemes, type UiThemeName } from '../themes/ui-themes'
 import { setLogLevel as setFrontendLogLevel, type LogLevel } from '../utils/logger'
@@ -417,6 +417,7 @@ export const useConfigStore = defineStore('config', () => {
   const autoVisionModel = ref<boolean>(true)
   // 自动切换可用模型（失败后从列表第一个开始换，只改这场对话）
   const autoFailoverModel = ref<boolean>(true)
+  const proactiveCompact = ref<ProactiveCompactStyle>(DEFAULT_PROACTIVE_COMPACT)
   // 收起过程的表态：undefined = 还没表态，摊开且有资格被邀请一次
   const foldAgentProcessChoice = ref<boolean | undefined>(undefined)
   /** 生效值。唯一真相是用户的表态——没表态就摊开，不在这里兜第二个默认 */
@@ -466,7 +467,7 @@ export const useConfigStore = defineStore('config', () => {
         accounts, savedShortcuts, savedAutoVision, savedAutoFailover, calAccounts, savedTtsSettings, savedCueSoundSettings, savedWebSearchSettings,
         themeMode, sysScheme, savedPinnedConversationIds, savedConversationDisplayTitles,
         savedFoldAgentProcess, savedFoldProcessInviteCount, savedShowConversationSkillChips,
-        savedUiZoomFactor,
+        savedUiZoomFactor, savedProactiveCompact,
       ] = await Promise.all([
         window.electronAPI.config.getAiProfiles(),
         window.electronAPI.config.getActiveAiProfile(),
@@ -505,6 +506,7 @@ export const useConfigStore = defineStore('config', () => {
         window.electronAPI.config.get('foldProcessInviteCount') as Promise<number | undefined>,
         window.electronAPI.config.get('showConversationSkillChips') as Promise<boolean | undefined>,
         window.electronAPI.config.get('uiZoomFactor') as Promise<number | undefined>,
+        window.electronAPI.config.get('proactiveCompact'),
       ])
 
       // 批量赋值
@@ -550,6 +552,7 @@ export const useConfigStore = defineStore('config', () => {
       foldProcessInviteCount.value = savedFoldProcessInviteCount ?? 0
       showConversationSkillChips.value = savedShowConversationSkillChips ?? true
       uiZoomFactor.value = clampUiZoomFactor(savedUiZoomFactor ?? UI_ZOOM_DEFAULT)
+      proactiveCompact.value = normalizeProactiveCompact(savedProactiveCompact)
       calendarAccounts.value = calAccounts || []
       if (savedTtsSettings && typeof savedTtsSettings === 'object') {
         ttsSettings.value = { ...ttsSettings.value, ...savedTtsSettings }
@@ -858,6 +861,12 @@ export const useConfigStore = defineStore('config', () => {
   async function setAutoFailoverModel(enabled: boolean): Promise<void> {
     autoFailoverModel.value = enabled
     await window.electronAPI.config.set('autoFailoverModel', enabled)
+  }
+
+  async function setProactiveCompact(style: ProactiveCompactStyle): Promise<void> {
+    const next = normalizeProactiveCompact(style)
+    proactiveCompact.value = next
+    await window.electronAPI.config.set('proactiveCompact', next)
   }
 
   /** 用户表态（设置页开关、或长任务邀请里的两个按钮）。落盘即视为表过态，从此不再邀请 */
@@ -1270,6 +1279,8 @@ export const useConfigStore = defineStore('config', () => {
     agentDebugMode,
     autoVisionModel,
     autoFailoverModel,
+    proactiveCompact,
+    setProactiveCompact,
     foldAgentProcess,
     foldAgentProcessUndecided,
     foldProcessInviteCount,

@@ -3,7 +3,7 @@
  *
  * 对应 SPEC「给模型看的说明必须与它当下的处境一致」：
  * - 当前形态下用不上的规矩不出现在说明里（manage_pane 的「最后一扇窗」两边规矩相反）
- * - 余量自查常驻，不跟着压缩工具在高水位才出现
+ * - 查看用量和动手压缩从一开始就在，不必等窗口快满
  * - 裁剪只依据一次会话内不变的条件，同样入参必须给出 byte-exact 相同的说明（前缀缓存的前提）
  */
 import { describe, it, expect, vi } from 'vitest'
@@ -85,24 +85,37 @@ describe('list_ssh_sessions 说明同样按形态裁剪', () => {
   })
 })
 
-describe('上下文余量自查常驻', () => {
+describe('上下文查看与压缩常驻', () => {
   it.each<AgentMode>(['local', 'ssh', 'assistant'])('%s 模式下不用等到高水位就有', (mode) => {
     const names = getAgentTools(undefined, { mode }).map(t => t.function.name)
-    expect(names).toContain('check_context')
+    expect(names).toContain('context')
+    expect(names).toContain('recall_compressed')
+    expect(names).not.toContain('check_context')
+    expect(names).not.toContain('compress_context')
+    expect(names).not.toContain('manage_memory')
   })
 
-  it('无人值守时照样在——它只是报数，不等人回答', () => {
+  it('无人值守时照样在——查看只报数，不等人回答', () => {
     const names = getAgentTools(undefined, { mode: 'assistant', unattended: true }).map(t => t.function.name)
-    expect(names).toContain('check_context')
+    expect(names).toContain('context')
   })
 
-  it('压缩类工具仍按水位启用，不受影响', () => {
+  it('记忆管理仍按水位打开', () => {
     const idle = getAgentTools(undefined, { mode: 'assistant' }).map(t => t.function.name)
     const pressed = getAgentTools(undefined, { mode: 'assistant', includeContextTools: true })
       .map(t => t.function.name)
-    expect(idle).not.toContain('compress_context')
-    expect(pressed).toContain('compress_context')
-    expect(pressed).toContain('check_context')
+    expect(idle).not.toContain('manage_memory')
+    expect(pressed).toContain('manage_memory')
+    expect(pressed).toContain('context')
+  })
+
+  it('查看和压缩是同一扇门；该不该压写在系统说明里，工具说明不写账', () => {
+    const desc = describeOf('assistant', 'context')
+    expect(desc).toContain('check')
+    expect(desc).toContain('compress')
+    expect(desc).toContain('系统说明里的取向')
+    expect(desc).not.toContain('总账')
+    expect(describeOf('assistant', 'context')).toBe(describeOf('local', 'context'))
   })
 })
 

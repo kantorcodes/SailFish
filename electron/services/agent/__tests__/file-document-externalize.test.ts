@@ -90,7 +90,7 @@ describe('read_file 文档解析路径：超预算落盘 + 指针', () => {
   it('上下文余量耗尽（maxChars=0）→ 返回错误引导先压缩，与普通文件路径一致（不落盘空指针）', async () => {
     const result = await readFile('pty1', { path: PDF_PATH }, {} as never, makeExecutor(0))
     expect(result.success).toBe(false)
-    expect(result.error).toContain('compress_context')
+    expect(result.error).toContain('context(action="compress")')
     expect(result.error).toContain(PDF_PATH)
   })
 })

@@ -58,6 +58,17 @@ export function inferConversationKind(agentKey?: string): ConversationKind {
 /** Agent 执行模式：strict=所有命令需确认，relaxed=仅危险命令需确认，free=全自动 */
 export type ExecutionMode = 'strict' | 'relaxed' | 'free'
 
+/** 它有多主动地把已经用不上的过程先交接掉 */
+export const PROACTIVE_COMPACT_STYLES = ['more', 'balanced', 'less', 'off'] as const
+export type ProactiveCompactStyle = (typeof PROACTIVE_COMPACT_STYLES)[number]
+export const DEFAULT_PROACTIVE_COMPACT: ProactiveCompactStyle = 'balanced'
+
+export function normalizeProactiveCompact(raw: unknown): ProactiveCompactStyle {
+  return (PROACTIVE_COMPACT_STYLES as readonly string[]).includes(raw as string)
+    ? (raw as ProactiveCompactStyle)
+    : DEFAULT_PROACTIVE_COMPACT
+}
+
 /** 智能巡检的确认策略：cautious=逐条审慎，batch=批量确认，free=自由模式 */
 export type ConfirmStrategy = 'cautious' | 'batch' | 'free'
 

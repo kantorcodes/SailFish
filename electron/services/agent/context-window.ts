@@ -70,6 +70,11 @@ export interface ContextWindowDeps {
    * 仅测试注入用——生产代码不要传。
    */
   minProactiveRangeTokens?: number
+  /**
+   * 快满时要不要催它自己调用 `context` 压缩。伙计没有这扇门；人选了不主动压缩时也不催。
+   * 不传则催（与旧行为一致）。系统救命压不受影响。
+   */
+  shouldNudgeModelToCompact?: () => boolean
 }
 
 /**
@@ -211,7 +216,7 @@ export class ContextWindowManager {
 
   constructor(private deps: ContextWindowDeps) {}
 
-  /** 上下文管理工具(compress_context 等)是否已激活。一旦激活不回退(压缩后用量可能降低)。 */
+  /** 用量是否已到高水位。一旦激活不回退（压缩后用量可能降低）。查看/压缩从一开始就在；高水位才带记忆管理。 */
   get enabled(): boolean {
     return this._enabled
   }
@@ -392,8 +397,8 @@ export class ContextWindowManager {
    * 更新上下文压力状态:注入用量到 UI + 渐进式提醒。
    *
    * 设计原则:程序只提供信息,所有压缩决策由 AI 做。
-   * - < 85%: 不干预(最大化前缀缓存命中)
-   * - >= 85%: 激活上下文管理工具 + 注入警告消息到 messages 末尾
+   * - < 85%: 不注入告警(最大化前缀缓存命中)
+   * - >= 85%: 注入警告消息到 messages 末尾（查看/压缩工具从一开始就在）
    * - API 自然报错 context_length_exceeded: emergencyCompress 自动压缩兜底
    *   (见 executeLoop catch → ContextWindowManager.isContextLimitError → emergencyCompress)
    */
@@ -414,7 +419,7 @@ export class ContextWindowManager {
       this.deps.reportUsage(lastPromptTokens, this.deps.getLastCacheHitRate())
     }
 
-    // 超过阈值时激活上下文管理功能(一旦激活不会关闭,因为压缩后用量可能降低)
+    // 超过阈值时记下「已经告过警」(一旦激活不会关闭,因为压缩后用量可能降低)
     if (!this._enabled && sendUsagePercent >= ContextWindowManager.THRESHOLD) {
       this._enabled = true
     }
@@ -422,13 +427,13 @@ export class ContextWindowManager {
     // [缓存优化] 「上下文状态注入系统提示词」已禁用:每轮用量数字都变,注入系统提示
     // 会破坏 DeepSeek/OpenAI/Anthropic 前缀缓存。上下文压力由下方 85% 警告消息兜底。
 
-    // 85%+ 额外注入警告消息(避免重复注入)
-    if (sendUsagePercent >= 85) {
+    // 85%+ 额外注入警告消息(避免重复注入)。伙计没有这扇门，不主动压缩也不催它自己压。
+    if (sendUsagePercent >= 85 && (this.deps.shouldNudgeModelToCompact?.() ?? true)) {
       const lastMsg = run.messages[run.messages.length - 1]
+      const lastText = typeof lastMsg?.content === 'string' ? lastMsg.content : ''
       const isAlreadyWarned =
         lastMsg?.role === 'user' &&
-        typeof lastMsg.content === 'string' &&
-        lastMsg.content.includes('[系统] 上下文用量告警')
+        (lastText.includes('[系统] 上下文用量告警') || lastText.includes('[System] Context usage critical'))
 
       if (!isAlreadyWarned) {
         run.messages.push({

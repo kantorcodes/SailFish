@@ -174,6 +174,7 @@ export class SailFish extends Agent {
       mcpServerCatalog: this.services.mcpService?.shouldDeferTools()
         ? this.services.mcpService.getServerCatalogText()
         : undefined,
+      proactiveCompact: options.proactiveCompact,
     }).build()
   }
   

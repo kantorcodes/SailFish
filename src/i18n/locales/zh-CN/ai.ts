@@ -636,6 +636,8 @@ export default {
       search_history: '搜索历史',
       talk_to_user: '与用户对话',
       send_to_chat: '发送消息',
+      context: '上下文',
+      check_context: '查看上下文',
       compress_context: '压缩上下文',
       recall_compressed: '回忆压缩内容',
       manage_memory: '管理记忆',

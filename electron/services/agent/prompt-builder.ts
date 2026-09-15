@@ -8,7 +8,8 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AgentContext, HostProfileServiceInterface, ExecutionMode } from './types'
+import type { AgentContext, HostProfileServiceInterface, ExecutionMode, ProactiveCompactStyle } from './types'
+import { normalizeProactiveCompact } from '@shared/types'
 import type { AgentMbtiType } from '../config.service'
 import { getUserSkillService } from '../user-skill.service'
 import { getWorkspacePath, getScratchPath } from './tools/file'
@@ -297,6 +298,8 @@ export interface BuildSystemPromptOptions {
   loadedSkillsRoster?: LoadedSkillRosterItem[]
   /** MCP 连接器目录（仅渐进披露 defer 模式提供，注入「可用的 MCP 连接器」一节） */
   mcpServerCatalog?: string
+  /** 它有多主动地把已经用不上的过程先交接掉 */
+  proactiveCompact?: ProactiveCompactStyle
 }
 
 /**
@@ -327,6 +330,7 @@ export class PromptBuilder {
   private readonly skillsContent?: string
   private readonly loadedSkillsRoster: LoadedSkillRosterItem[]
   private readonly mcpServerCatalog?: string
+  private readonly proactiveCompact: ProactiveCompactStyle
 
   private osType = ''
   private shellType = ''
@@ -354,6 +358,7 @@ export class PromptBuilder {
     this.skillsContent = options.skillsContent
     this.loadedSkillsRoster = options.loadedSkillsRoster ?? []
     this.mcpServerCatalog = options.mcpServerCatalog
+    this.proactiveCompact = normalizeProactiveCompact(options.proactiveCompact)
   }
 
   // ==================== 公开方法 ====================
@@ -861,6 +866,7 @@ export class PromptBuilder {
       this.buildDocumentRule(),
       this.buildKnowledgeRule(),
       this.buildMessageStructureRule(),
+      this.buildContextEconomyRule(),
       this.buildExecutionModeNote(),
       '**时间感知**：用户真实输入在 `<sf_user_message>` 内，其开头 `[YYYY-MM-DD HH:MM 周X]` 为系统自动注入的发送时间。',
     ].filter(Boolean)
@@ -988,6 +994,10 @@ export class PromptBuilder {
     ].join('\n')
   }
 
+  private buildContextEconomyRule(): string {
+    return buildContextEconomyRuleText(this.proactiveCompact)
+  }
+
   private buildKnowledgeRule(): string {
     if (!this.knowledgeEnabled) return ''
     if (this.knowledgeContext) {
@@ -1024,7 +1034,7 @@ export class PromptBuilder {
     const parts = [
       '# 历史任务',
       '',
-      '对话历史里带着你说过的话、那一轮实际怎么收场的；近的轮次还会带着中间怎么做的。窗口满了才会写成交接。需要取回更早整轮时用 `recall(id)` 或 `recall(id, detail="full")`。',
+      '对话历史里带着你说过的话、那一轮实际怎么收场的；近的轮次还会带着中间怎么做的。系统不会因为隔得远就先收过程。窗口真满了会交接；你也可以为后面省开销自己先交接。需要取回更早整轮时用 `recall(id)` 或 `recall(id, detail="full")`。',
       '',
       '**可用任务**：',
       taskIdList,
@@ -1056,6 +1066,38 @@ export function getMbtiStylePrompt(mbti: AgentMbtiType): string {
  */
 export function getAllMbtiTypes(): Array<{ type: string; name: string; style: string }> {
   return PromptBuilder.getAllMbtiTypes()
+}
+
+/** 按人选定的档位写清「该不该自己先交接」。工具说明不写这本账。 */
+export function buildContextEconomyRuleText(style: ProactiveCompactStyle): string {
+  switch (style) {
+    case 'more':
+      return [
+        '**上下文开销**：每走一步，眼前这摊都会再送一遍。前缀缓存会打折，但已经做完、后面用不上的过程仍在按量计费。',
+        '人希望你更勤快地交接：一段明显做完、后面还要用这摊继续干活时，就先把用不上的过程压掉，不必等「后面还很长」非常确定。这一下会拆掉当前缓存，但后面每一轮都按瘦下来的量走。',
+        '还要用的原文不要压；只剩一两步收尾才不必为了省去拆缓存。拿不准时，宁可先压，也不要拖着一大段用不上的过程。',
+        '查看用量和动手压缩是同一扇门（`context`）。需要数字时先查，再决定压不压。查的时候只给你报数。',
+      ].join('\n')
+    case 'less':
+      return [
+        '**上下文开销**：每走一步，眼前这摊都会再送一遍。前缀缓存会打折，但已经做完、后面用不上的过程仍在按量计费。',
+        '人希望你少自己压：优先保住当前缓存。只有用不上的过程已经明显又长、后面还要走很多轮、不压会一直白花钱时，才动手交接。拿不准就先不压。',
+        '还要用的原文不要压；只剩收尾不必为了省去拆缓存。',
+        '查看用量和动手压缩是同一扇门（`context`）。需要数字时先查。查的时候只给你报数。',
+      ].join('\n')
+    case 'off':
+      return [
+        '**上下文开销**：人选择了不让你自己主动压缩。不要调用 `context` 去做 compress。',
+        '窗口快满时系统会压；人点名时也会压。你仍可用 `context` 查看用量，查的时候只给你报数。',
+      ].join('\n')
+    case 'balanced':
+    default:
+      return [
+        '**上下文开销**：每走一步，眼前这摊都会再送一遍。前缀缓存会打折，但已经做完、后面用不上的过程仍在按量计费。',
+        '后面还要走很多轮时，先把用不上的过程交接掉——这一下会拆掉当前缓存，后面每一轮都按瘦下来的量走，总账往往更便宜。还要用的原文不要压；只剩收尾不必为了省去拆缓存。',
+        '查看用量和动手压缩是同一扇门（`context`）。需要数字时先查，再决定压不压。查的时候只给你报数，该不该压由你掂量。',
+      ].join('\n')
+  }
 }
 
 /**

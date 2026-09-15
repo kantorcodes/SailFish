@@ -15,6 +15,7 @@ import type { AgentExecutionPhase } from './types'
 import { t } from './i18n'
 import { getStreamPlaceholder, isJsonStringFieldComplete } from './tool-metadata'
 import { expandTilde } from './tools/file'
+import { resolveContextAction } from './tools/context'
 import fs from 'fs'
 
 // 重新导出 ToolDefinition 类型供技能模块使用
@@ -231,6 +232,12 @@ function readFileTitleKey(args: Record<string, unknown>): string {
     : 'file.reading'
 }
 
+function contextToolTitleKey(args: Record<string, unknown>): string {
+  return resolveContextAction(args) === 'compress'
+    ? 'agent.compact_tool_step'
+    : 'context_tool.check_step'
+}
+
 /**
  * dispatch_agents 的字符数累计：tasks[].prompt + tasks[].description 嵌套字段。
  * 用 customProgress 暴露给 formatStreamPreCardFromMeta，让用户看到子任务指令在持续增长。
@@ -409,7 +416,10 @@ export interface GetAgentToolsOptions {
   mode?: AgentMode
   /** 请求来源通道（用于条件性加载 IM 专属工具） */
   remoteChannel?: RemoteChannel
-  /** 是否包含上下文管理工具（用量超过阈值时启用，节省 token） */
+  /**
+   * 是否带上历史任务记忆管理。查看/压缩从一开始就在；
+   * 记忆管理仍按水位打开，避免一开始就摆出「丢任务」这扇门。
+   */
   includeContextTools?: boolean
   /**
    * 本次执行无人值守：没有可同步应答的对象。
@@ -1269,25 +1279,6 @@ ${sshUsageDesc}
       }
     } as ToolDefinitionWithMeta,
 
-    // ==================== 上下文余量自查（常驻） ====================
-    // 常驻而非跟着压缩工具在高水位才出现：它的用处正在水位线之下——模型准备读大文件、
-    // 铺开多步任务之前想先掂量一下。等告警推到面前时数字已在告警里写着，反而不需要它了。
-    // 每轮往对话里塞用量数字是另一条路，但那些数字会永久沉淀成一串过期读数（见 SPEC
-    // 「给模型看的说明必须与它当下的处境一致」）。
-    {
-      type: 'function',
-      function: {
-        name: 'check_context',
-        description: `查询当前上下文窗口的用量，返回已用、上限、剩余 token 数。剩余量为估算值，本轮已产生的内容也计算在内。`,
-        parameters: {
-          type: 'object',
-          properties: {}
-        }
-      },
-      _meta: {
-        parallelizable: true,
-      }
-    } as ToolDefinitionWithMeta
   ]
 
   // 根据运行模式过滤工具
@@ -1372,9 +1363,10 @@ ${sshUsageDesc}
     } as ToolDefinitionWithMeta)
   }
 
-  // 上下文管理工具：仅在用量超过阈值时注入，节省 token
+  // 查看/压缩 + 取回归档从一开始就在。记忆管理仍按水位打开。
+  filteredTools.push(...getAlwaysOnContextTools())
   if (options?.includeContextTools) {
-    filteredTools.push(...getContextManagementTools())
+    filteredTools.push(...getMemoryManagementTools())
   }
 
   if (options?.mode === 'assistant') {
@@ -1456,17 +1448,22 @@ export function stripToolMeta(tools: readonly ToolDefinition[]): ToolDefinition[
 }
 
 /**
- * 上下文管理工具定义（按需加载，用量超过阈值时才注入）
+ * 查看/压缩 + 取回归档：从一开始就在。
  */
-function getContextManagementTools(): ToolDefinition[] {
+function getAlwaysOnContextTools(): ToolDefinition[] {
   return [
     {
       type: 'function',
       function: {
-        name: 'compress_context',
-        description: `压缩较早的对话以释放上下文空间。被压缩的内容归档保留，可通过 recall_compressed 找回。
+        name: 'context',
+        description: `查看或压缩当前对话占用的上下文。
 
-summary 是写给未来的你自己的——压缩后你将基于它和最近的对话继续完成任务，必须包含：
+- check：只回报已用 / 上限 / 剩余（估算，含本轮新增）。不附带该不该压的判断。
+- compress：把较早的过程收成交接小结并归档，可用 recall_compressed 取回。
+
+该不该自己压，以系统说明里的取向为准。查的时候只给你报数。
+
+compress 的 summary 是写给未来的你自己的——压缩后你将基于它和最近的对话继续完成任务，必须包含：
 1. 任务目标：用户最初要求做什么（一句话）
 2. 当前进度：已完成哪些步骤、进行到哪一步（有次序的写清数字，如"已处理 30/57，第 31 份进行中"）
 3. 关键结论：到目前为止的结论、发现、重要数据；评审/分析类任务逐项保留要点；涉及的文件保留完整路径
@@ -1476,17 +1473,25 @@ summary 是写给未来的你自己的——压缩后你将基于它和最近的
         parameters: {
           type: 'object',
           properties: {
+            action: {
+              type: 'string',
+              enum: ['check', 'compress'],
+              description: 'check 查看用量；compress 压缩较早过程。省略且未写 summary 时按 check。'
+            },
             summary: {
               type: 'string',
-              description: '被压缩内容的小结（写给未来的自己）：任务目标、当前进度（含数字）、关键结论/数据/文件完整路径、下一步'
+              description: 'compress 时必填。被压缩内容的小结（写给未来的自己）：任务目标、当前进度（含数字）、关键结论/数据/文件完整路径、下一步'
             },
             keep_recent: {
               type: 'number',
-              description: '保留最近多少组消息（assistant + tool 响应）不压缩，默认 4'
+              description: 'compress 时可选。保留最近多少组消息（assistant + tool 响应）不压缩，默认 4'
             }
-          },
-          required: ['summary']
+          }
         }
+      },
+      _meta: {
+        streamDisplay: { titleKey: contextToolTitleKey },
+        allowedForSubAgent: false,
       }
     } as ToolDefinitionWithMeta,
     {
@@ -1503,8 +1508,14 @@ summary 是写给未来的你自己的——压缩后你将基于它和最近的
             }
           }
         }
-      }
-    } as ToolDefinitionWithMeta,
+      },
+      _meta: { allowedForSubAgent: false }
+    } as ToolDefinitionWithMeta
+  ]
+}
+
+function getMemoryManagementTools(): ToolDefinition[] {
+  return [
     {
       type: 'function',
       function: {

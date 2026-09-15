@@ -23,7 +23,7 @@ import { sftpPut, sftpGet } from './sftp'
 import { searchKnowledge, getKnowledgeDoc } from './knowledge'
 import { createPlan, updatePlan, clearPlan, dispatchPlan } from './plan'
 import { recallTask, deepRecall, searchHistory, dispatchRecall } from './memory'
-import { checkContext, compressContext, recallCompressed, manageMemory } from './context'
+import { checkContext, compressContext, dispatchContext, recallCompressed, manageMemory } from './context'
 import { wait, askUser, sendFileToChat, sendImageToChat, sendToChat, awaitFileTransfer, messageUser, executeMcpTool, loadMcpServer, loadSkillTool, unloadSkillTool, dispatchSkill, loadUserSkillTool, executeSkillTool } from './misc'
 import { dispatchSubAgents, followupAgent, waitAgents, interruptAgent, denyIfParentOnly } from './sub-agent'
 import { executeWebSearch } from './web-search'
@@ -246,9 +246,11 @@ export async function executeTool(
     case 'deep_recall':
       return deepRecall(args, executor, id)
 
+    case 'context':
+      return dispatchContext(args, executor)
+    // 旧名：清单里已不再出现，模型一般走不到；留下以免手工/旧记录误调。
     case 'check_context':
       return checkContext(executor)
-
     case 'compress_context':
       return compressContext(args, executor)
 

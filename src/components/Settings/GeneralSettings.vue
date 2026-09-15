@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore } from '../../stores/config'
 import { SUPPORTED_LOCALES, type LocaleType } from '../../i18n'
-import { stepUiZoomFactor, UI_ZOOM_DEFAULT, UI_ZOOM_MAX, UI_ZOOM_MIN, uiZoomFactorToPercent } from '@shared/types'
+import { stepUiZoomFactor, UI_ZOOM_DEFAULT, UI_ZOOM_MAX, UI_ZOOM_MIN, uiZoomFactorToPercent, type ProactiveCompactStyle } from '@shared/types'
 import {
   SettingsPage,
   SettingsGroup,
@@ -88,6 +88,17 @@ const onAutoDownloadChange = async (v: boolean) => {
 const onInstallOnQuitChange = async (v: boolean) => {
   installUpdateOnQuit.value = v
   await window.electronAPI.config.set('installUpdateOnQuit', v)
+}
+
+const proactiveCompactOptions = computed(() => [
+  { value: 'off', label: t('general.proactiveCompactOff'), title: t('general.proactiveCompactOffHint') },
+  { value: 'less', label: t('general.proactiveCompactLess'), title: t('general.proactiveCompactLessHint') },
+  { value: 'balanced', label: t('general.proactiveCompactBalanced'), title: t('general.proactiveCompactBalancedHint') },
+  { value: 'more', label: t('general.proactiveCompactMore'), title: t('general.proactiveCompactMoreHint') },
+])
+
+const onProactiveCompactChange = (value: string) => {
+  void configStore.setProactiveCompact(value as ProactiveCompactStyle)
 }
 </script>
 
@@ -183,6 +194,17 @@ const onInstallOnQuitChange = async (v: boolean) => {
         <SettingToggle
           :model-value="configStore.showConversationSkillChips"
           @update:model-value="configStore.setShowConversationSkillChips"
+        />
+      </SettingRow>
+
+      <SettingRow
+        :label="t('general.proactiveCompact')"
+        :desc="t('general.proactiveCompactDesc')"
+      >
+        <SettingSegmented
+          :model-value="configStore.proactiveCompact"
+          :options="proactiveCompactOptions"
+          @update:model-value="onProactiveCompactChange"
         />
       </SettingRow>
     </SettingsGroup>

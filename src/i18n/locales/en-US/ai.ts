@@ -635,6 +635,8 @@ export default {
       search_history: 'Search History',
       talk_to_user: 'Talk to User',
       send_to_chat: 'Send Message',
+      context: 'Context',
+      check_context: 'Check Context',
       compress_context: 'Compress Context',
       recall_compressed: 'Recall Compressed',
       manage_memory: 'Manage Memory',

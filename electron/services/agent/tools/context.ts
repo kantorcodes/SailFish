@@ -1,6 +1,6 @@
 /**
  * 上下文管理工具
- * 包括：compress_context（压缩当前对话）、recall_compressed（找回归档）、manage_memory（跨任务记忆管理）
+ * 包括：context（查看用量 / 压缩当前对话）、recall_compressed（找回归档）、manage_memory（跨任务记忆管理）
  */
 import { t } from '../i18n'
 import type { ToolExecutorConfig, ToolResult } from './types'
@@ -145,6 +145,64 @@ export function failUserCompactTurn(
   return result
 }
 
+export function resolveContextAction(args: Record<string, unknown>): 'check' | 'compress' | string {
+  const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : ''
+  const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+  if (action === 'compress' || (action === '' && summary)) return 'compress'
+  if (action === 'check' || action === '') return 'check'
+  return action
+}
+
+/**
+ * context：查看用量或压缩较早过程。
+ * check 只报数，不附带「该压缩了」「还很宽裕」之类的判断——怎么应对由模型自己定。
+ */
+export function dispatchContext(
+  args: Record<string, unknown>,
+  executor: ToolExecutorConfig
+): ToolResult {
+  const resolved = resolveContextAction(args)
+  if (resolved === 'compress') {
+    const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+    if (!summary) {
+      const error = t('context_tool.compress_need_summary')
+      executor.addStep({
+        type: 'tool_call',
+        content: t('agent.compact_tool_step'),
+        toolName: 'context',
+        toolArgs: args,
+        riskLevel: 'safe'
+      })
+      executor.addStep({
+        type: 'tool_result',
+        content: error,
+        toolName: 'context',
+        toolResult: error
+      })
+      return { success: false, output: '', error }
+    }
+    return compressContext(args, executor)
+  }
+  if (resolved === 'check') {
+    return checkContext(executor)
+  }
+  const error = t('context_tool.unknown_action', { action: resolved })
+  executor.addStep({
+    type: 'tool_call',
+    content: t('context_tool.unknown_step'),
+    toolName: 'context',
+    toolArgs: args,
+    riskLevel: 'safe'
+  })
+  executor.addStep({
+    type: 'tool_result',
+    content: error,
+    toolName: 'context',
+    toolResult: error
+  })
+  return { success: false, output: '', error }
+}
+
 /**
  * check_context: 查询当前上下文用量
  *
@@ -154,17 +212,17 @@ export function checkContext(executor: ToolExecutorConfig): ToolResult {
   executor.addStep({
     type: 'tool_call',
     content: t('context_tool.check_step'),
-    toolName: 'check_context',
-    toolArgs: {},
+    toolName: 'context',
+    toolArgs: { action: 'check' },
     riskLevel: 'safe'
   })
 
   if (!executor.getContextUsage) {
-    const error = 'check_context is not available in this context'
+    const error = 'context check is not available in this context'
     executor.addStep({
       type: 'tool_result',
       content: error,
-      toolName: 'check_context',
+      toolName: 'context',
       toolResult: error
     })
     return { success: false, output: '', error }
@@ -181,7 +239,7 @@ export function checkContext(executor: ToolExecutorConfig): ToolResult {
   executor.addStep({
     type: 'tool_result',
     content: output,
-    toolName: 'check_context',
+    toolName: 'context',
     toolResult: output
   })
 
@@ -205,17 +263,17 @@ export function compressContext(
   executor.addStep({
     type: 'tool_call',
     content: t('context_tool.compress_step', { keepRecent }),
-    toolName: 'compress_context',
+    toolName: 'context',
     toolArgs: args,
     riskLevel: 'safe'
   })
 
   if (!executor.compressCurrentContext) {
-    const error = 'compress_context is not available in this context'
+    const error = 'context compress is not available in this context'
     executor.addStep({
       type: 'tool_result',
       content: error,
-      toolName: 'compress_context',
+      toolName: 'context',
       toolResult: error
     })
     return { success: false, output: '', error }
@@ -228,7 +286,7 @@ export function compressContext(
     executor.addStep({
       type: 'tool_result',
       content: msg,
-      toolName: 'compress_context',
+      toolName: 'context',
       toolResult: msg
     })
     return { success: false, output: '', error: msg }
@@ -244,7 +302,7 @@ export function compressContext(
   executor.addStep({
     type: 'tool_result',
     content: output,
-    toolName: 'compress_context',
+    toolName: 'context',
     toolResult: output
   })
 

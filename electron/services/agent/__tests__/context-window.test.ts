@@ -319,6 +319,17 @@ describe('ContextWindowManager.updatePressure', () => {
     expect(warnings.length).toBe(1)
   })
 
+  it('不催它自己压时：快满也不注入警告，高水位仍激活', () => {
+    const m = new ContextWindowManager(makeDeps({
+      getLastPromptTokens: () => 110000,
+      shouldNudgeModelToCompact: () => false,
+    }))
+    const run = answered()
+    m.updatePressure(run)
+    expect(run.messages.length).toBe(2)
+    expect(m.enabled).toBe(true)
+  })
+
   it('用量 < 85%:不注入警告', () => {
     const m = new ContextWindowManager(makeDeps({ getLastPromptTokens: () => 1000 }))
     const run = answered()

@@ -58,6 +58,7 @@ import {
   SKILLS_CONTENT_HEADING,
 } from '../prompt-builder'
 import type { AgentContext, HostProfileServiceInterface } from '../types'
+import { normalizeProactiveCompact } from '@shared/types'
 
 // ==================== 辅助函数 ====================
 
@@ -936,6 +937,48 @@ describe('Edge cases', () => {
     expect(prompt).toContain('# 浏览器助手')
     expect(prompt).toContain('Chromium')
     expect(prompt).toContain('browser_list_tabs')
+  })
+})
+
+describe('上下文开销', () => {
+  it('默认适中：讲清后面还长时先交接的账，并点名同一扇门', () => {
+    const prompt = new PromptBuilder({ context: createMockContext() }).build()
+    expect(prompt).toContain('上下文开销')
+    expect(prompt).toContain('拆掉当前缓存')
+    expect(prompt).toContain('总账往往更便宜')
+    expect(prompt).toContain('`context`')
+  })
+
+  it('较多：更勤快交接', () => {
+    const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'more' }).build()
+    expect(prompt).toContain('更勤快')
+    expect(prompt).toContain('宁可先压')
+    expect(prompt).toContain('`context`')
+    expect(prompt).not.toContain('总账往往更便宜')
+  })
+
+  it('较少：拿不准就先不压', () => {
+    const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'less' }).build()
+    expect(prompt).toContain('少自己压')
+    expect(prompt).toContain('拿不准就先不压')
+    expect(prompt).toContain('`context`')
+  })
+
+  it('不主动压缩：不要自己 compress', () => {
+    const prompt = new PromptBuilder({ context: createMockContext(), proactiveCompact: 'off' }).build()
+    expect(prompt).toContain('不要调用 `context` 去做 compress')
+    expect(prompt).not.toContain('总账往往更便宜')
+    expect(prompt).not.toContain('更勤快')
+  })
+
+  it('脏值回落到适中', () => {
+    expect(normalizeProactiveCompact('nope')).toBe('balanced')
+    expect(normalizeProactiveCompact(undefined)).toBe('balanced')
+    const prompt = new PromptBuilder({
+      context: createMockContext(),
+      proactiveCompact: normalizeProactiveCompact('nope'),
+    }).build()
+    expect(prompt).toContain('总账往往更便宜')
   })
 })
 

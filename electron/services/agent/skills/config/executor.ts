@@ -65,6 +65,7 @@ const CONFIG_REGISTRY: ConfigMeta[] = [
   { key: 'agentDebugMode', label: '调试模式', category: 'agent', type: 'boolean' },
   { key: 'logLevel', label: '日志级别', category: 'agent', type: 'string', options: ['debug', 'info', 'warn', 'error', 'silent'] },
   { key: 'aiRules', label: '自定义 AI 规则', category: 'agent', type: 'string' },
+  { key: 'proactiveCompact', label: '主动压缩上下文', category: 'agent', type: 'string', options: ['more', 'balanced', 'less', 'off'] },
 
   // IM - DingTalk
   { key: 'imDingTalkAutoConnect', label: '钉钉自动连接', category: 'im', type: 'boolean' },
