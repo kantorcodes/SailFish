@@ -196,7 +196,9 @@ const onProactiveCompactChange = (value: string) => {
           @update:model-value="configStore.setShowConversationSkillChips"
         />
       </SettingRow>
+    </SettingsGroup>
 
+    <SettingsGroup :title="t('general.conversation')">
       <SettingRow
         :label="t('general.proactiveCompact')"
         :desc="t('general.proactiveCompactDesc')"

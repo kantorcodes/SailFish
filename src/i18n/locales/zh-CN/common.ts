@@ -327,6 +327,7 @@ export default {
   general: {
     startupAndUpdate: '启动与更新',
     interface: '界面',
+    conversation: '对话',
     interfaceLanguage: '界面语言',
     uiZoom: '界面缩放',
     uiZoomHint: '点一下大一档或小一档，和菜单快捷键相同。点中间的数字回到 100%。',

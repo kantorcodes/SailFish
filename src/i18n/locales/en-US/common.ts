@@ -327,6 +327,7 @@ export default {
   general: {
     startupAndUpdate: 'Startup & Updates',
     interface: 'Interface',
+    conversation: 'Conversation',
     interfaceLanguage: 'Interface language',
     uiZoom: 'Interface zoom',
     uiZoomHint: 'One step at a time, same as the zoom shortcuts. Click the percentage to return to 100%.',
