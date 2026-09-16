@@ -75,8 +75,6 @@ const paneReadyForTerminal = computed(() =>
 
 async function retryPaneConnect() {
   if (!props.layout.ptyId) return
-  props.layout.connectionError = undefined
-  props.layout.isConnecting = true
   await terminalStore.reconnectSsh(props.tabId, props.layout.ptyId)
 }
 

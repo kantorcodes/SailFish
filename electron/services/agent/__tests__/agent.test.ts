@@ -44,6 +44,7 @@ import type {
 } from '../types'
 import { TaskMemoryStore } from '../task-memory'
 import { ConversationManager, ConversationStore } from '../../conversation'
+import { SUMMARY_MAX_OUTPUT_TOKENS } from '../../ai-request-budget'
 
 // ==================== Mock 实现 ====================
 
@@ -222,7 +223,7 @@ describe('Agent', () => {
       // 走的是带 tools 的接口（tools schema 属于前缀，另起一次无 tools 的调用等于换前缀）
       expect(Array.isArray(tools)).toBe(true)
       // 首次不禁用工具调用：禁用会让部分 provider 不再把 tools 计入 prompt，白丢缓存
-      expect(chatWithTools.mock.calls[0][4]).toBeUndefined()
+      expect(chatWithTools.mock.calls[0][4]).toEqual({ maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS })
     })
 
     it('模型转头去调工具没写正文 → 禁用工具调用重试一次', async () => {
@@ -235,7 +236,10 @@ describe('Agent', () => {
 
       expect(await summarize(a)).toBe('重试拿到的小结')
       expect(chatWithTools).toHaveBeenCalledTimes(2)
-      expect(chatWithTools.mock.calls[1][4]).toEqual({ toolChoice: 'none' })
+      expect(chatWithTools.mock.calls[1][4]).toEqual({
+        toolChoice: 'none',
+        maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
+      })
     })
 
     it('重试仍拿不到正文 → 返回 null，由调用方回退固定模板', async () => {

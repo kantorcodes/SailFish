@@ -209,5 +209,5 @@ export function resolveComposerChord(
 /** 提示里套进「（%s）」这类模板；快捷键被清空时整段不出现，避免留下空括号。 */
 export function decorateShortcut(label: string, pattern: string): string {
   if (!label) return ''
-  return pattern.replaceAll('%s', label)
+  return pattern.replace(/%s/g, label)
 }

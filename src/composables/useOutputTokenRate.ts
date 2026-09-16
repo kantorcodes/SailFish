@@ -179,7 +179,7 @@ export function useOutputTokenRate(
     sync()
   }
 
-  watch(sessionKey, () => {
+  watch(() => toValue(sessionKey), () => {
     clearIdle()
     stopTicking()
     tracker.reset(toValue(completionTokens))

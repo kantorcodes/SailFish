@@ -67,6 +67,10 @@ class MemoryAgent extends Agent {
     return this.mockTools
   }
 
+  protected getAgentId(): string {
+    return 'memory-agent'
+  }
+
   protected buildSystemPrompt(_context: AgentContext, options: PromptOptions): string {
     this.lastSystemPrompt = `# 已知信息\n\n${options.contextKnowledgeDoc || ''}`
     return this.lastSystemPrompt
