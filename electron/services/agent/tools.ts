@@ -13,10 +13,8 @@ import { isConfigured as isWebSearchConfigured } from '../web-search/index'
 import { jinaAvailable as isJinaReaderAvailable } from '../web-fetch.service'
 import type { AgentExecutionPhase } from './types'
 import { t } from './i18n'
-import { getStreamPlaceholder, isJsonStringFieldComplete } from './tool-metadata'
-import { expandTilde } from './tools/file'
+import { getStreamPlaceholder } from './tool-metadata'
 import { resolveContextAction } from './tools/context'
-import fs from 'fs'
 
 // 重新导出 ToolDefinition 类型供技能模块使用
 export type { ToolDefinition }
@@ -190,24 +188,6 @@ function writeTextFilePrefix(args: Record<string, unknown>): string {
     default:
       return `${t('file.create')}: ${path}`
   }
-}
-
-/**
- * write_text_file 的流式早失败校验：path 在原始 JSON 里已经闭合、且 mode=create
- * 时，才检测「写已存在文件」。半截路径（tryParsePartialJson 补引号后的前缀）
- * 即使碰巧是已有目录，也不算命中。抽象层只读此元数据，不感知工具名。
- * 模块级函数（非内联闭包）：保持跨调用引用稳定，工具列表多次构建可深度相等。
- */
-function writeTextFileStreamValidate(args: Record<string, unknown>, rawPartial: string): string | null {
-  const p = typeof args.path === 'string' ? args.path : undefined
-  const mode = typeof args.mode === 'string' ? args.mode : undefined
-  if (!p || mode !== 'create') return null
-  if (!rawPartial || !isJsonStringFieldComplete(rawPartial, 'path')) return null
-  const full = expandTilde(p)
-  // 相对路径此时没有终端目录，不猜基准，交给执行阶段拦截
-  const isAbsolute = full.startsWith('/') || /^[A-Za-z]:[\\/]/.test(full)
-  if (!isAbsolute || !fs.existsSync(full)) return null
-  return t('error.file_exists_cannot_create', { path: full })
 }
 
 /**
@@ -755,7 +735,7 @@ ${execWaitAndUsage}`
       type: 'function',
       function: {
         name: 'write_text_file',
-        description: `写入或创建本地纯文本文件。部分修改请优先用 edit_file。大文件分段写入（先 create 再 append）。重要文件请先备份。目标文件已存在且要整文件重写时必须用 mode="overwrite"（mode="create" 会失败）。`,
+        description: `写入或创建本地纯文本文件。部分修改请优先用 edit_file。大文件分段写入（先 create 再 append）。重要文件请先备份。目标已存在且要整文件重写时请用 mode="overwrite"；mode="create" 若目标已存在则按覆盖处理（确认规则与覆盖相同）。`,
         parameters: {
           type: 'object',
           properties: {
@@ -766,7 +746,7 @@ ${execWaitAndUsage}`
             mode: {
               type: 'string',
               enum: ['create', 'overwrite', 'append', 'insert', 'replace_lines', 'regex_replace'],
-              description: '写入方式（必填，无默认）：create=新建（目标已存在会失败）；overwrite=整文件覆盖重写；append=末尾追加；insert=指定行插入；replace_lines=按行号范围替换；regex_replace=正则替换'
+              description: '写入方式（必填，无默认）：create=新建（目标已存在则按覆盖处理）；overwrite=整文件覆盖重写；append=末尾追加；insert=指定行插入；replace_lines=按行号范围替换；regex_replace=正则替换'
             },
             content: {
               type: 'string',
@@ -792,10 +772,7 @@ ${execWaitAndUsage}`
         streamDisplay: {
           customRender: writeTextFilePrefix,
           progressFields: ['content']
-        },
-        // 流式早失败：path 在原始 JSON 里闭合且 mode=create 时，检测「写已存在文件」，
-        // 命中即中止生成，不等整段 content 流完。半截路径不查。抽象层只读此元数据。
-        streamValidate: writeTextFileStreamValidate
+        }
       }
     } as ToolDefinitionWithMeta,
     // ==================== 父 Agent 专用工具 ====================
@@ -805,7 +782,7 @@ ${execWaitAndUsage}`
       type: 'function',
       function: {
         name: 'write_remote_text_file',
-        description: `通过 SFTP 写入远程纯文本文件。大文件分段写入（先 create 再 append）。路径不支持 ~。局部修改请用命令行 sed/awk。目标已存在且要整文件重写时必须用 mode="overwrite"（mode="create" 会失败）。`,
+        description: `通过 SFTP 写入远程纯文本文件。大文件分段写入（先 create 再 append）。路径不支持 ~。局部修改请用命令行 sed/awk。目标已存在且要整文件重写时请用 mode="overwrite"；mode="create" 若目标已存在则按覆盖处理（确认规则与覆盖相同）。`,
         parameters: {
           type: 'object',
           properties: {
@@ -816,7 +793,7 @@ ${execWaitAndUsage}`
             mode: {
               type: 'string',
               enum: ['create', 'overwrite', 'append'],
-              description: '写入方式（必填，无默认）：create=新建（目标已存在会失败）；overwrite=整文件覆盖重写；append=末尾追加'
+              description: '写入方式（必填，无默认）：create=新建（目标已存在则按覆盖处理）；overwrite=整文件覆盖重写；append=末尾追加'
             },
             content: {
               type: 'string',
@@ -1266,7 +1243,8 @@ ${sshUsageDesc}
       type: 'function',
       function: {
         name: 'talk_to_user',
-        description: `向用户发送 IM 消息或应用内推送通知，不会直接展示在桌面对话中。用于后台主动触达用户（如关切触发、唤醒、定时提醒、后台任务完成通知等）。`,
+        description: `向用户发送 IM 消息或应用内推送通知，不会直接展示在桌面对话中。用于后台主动触达用户（如关切触发、唤醒、定时提醒、后台任务完成通知等）。
+**不要用它重复你在当前对话回复中已经说过或即将说的内容**——用户就在对话现场时，你的回复本身已足够，重复推送会造成打扰。仅当用户可能不在对话现场（IM 远程、后台运行、长时间未交互后的主动触达）时使用。`,
         parameters: {
           type: 'object',
           properties: {

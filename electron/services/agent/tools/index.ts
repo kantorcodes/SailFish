@@ -26,6 +26,7 @@ import { recallTask, deepRecall, searchHistory, dispatchRecall } from './memory'
 import { checkContext, compressContext, dispatchContext, recallCompressed, manageMemory } from './context'
 import { wait, askUser, sendFileToChat, sendImageToChat, sendToChat, awaitFileTransfer, messageUser, executeMcpTool, loadMcpServer, loadSkillTool, unloadSkillTool, dispatchSkill, loadUserSkillTool, executeSkillTool } from './misc'
 import { dispatchSubAgents, followupAgent, waitAgents, interruptAgent, denyIfParentOnly } from './sub-agent'
+import { manageTasks } from './task-manager'
 import { executeWebSearch } from './web-search'
 import { executeWebFetch } from './web-fetch'
 import { listSshSessionsTool, managePaneTool } from './split-pane'
@@ -55,6 +56,7 @@ export {
   isScratchPath,
   isAutoApproveWorkspacePath,
   assessFileWriteRisk,
+  resolveWriteModeIfTargetExists,
 } from './file'
 export { sftpPut, sftpGet } from './sftp'
 export { searchKnowledge, getKnowledgeDoc } from './knowledge'
@@ -219,6 +221,9 @@ export async function executeTool(
 
     case 'talk_to_user':
       return messageUser(args, executor)
+
+    case 'manage_tasks':
+      return manageTasks(args, executor)
 
     case 'plan':
       return dispatchPlan(args, executor)

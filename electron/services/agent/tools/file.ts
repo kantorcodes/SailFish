@@ -521,6 +521,22 @@ export function assessFileWriteRisk(
   return 'moderate'
 }
 
+/** 新建撞上已有文件时按覆盖处理（确认规则与覆盖相同）。 */
+export function resolveWriteModeIfTargetExists(
+  mode: FileWriteMode,
+  fileExists: boolean,
+): FileWriteMode {
+  return mode === 'create' && fileExists ? 'overwrite' : mode
+}
+
+function isExistingRegularFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile()
+  } catch {
+    return false
+  }
+}
+
 function forbiddenUserDataToolResult(
   filePath: string,
   toolName: string,
@@ -1880,8 +1896,11 @@ export async function writeTextFile(
     })
   }
 
+  const fileExists = isExistingRegularFile(filePath)
+  const writeMode = resolveWriteModeIfTargetExists(mode as FileWriteMode, fileExists)
+
   let operationDesc = ''
-  switch (mode) {
+  switch (writeMode) {
     case 'overwrite':
       operationDesc = `${t('file.overwrite')}: ${filePath}`
       break
@@ -1902,8 +1921,7 @@ export async function writeTextFile(
       break
   }
 
-  const fileExists = fs.existsSync(filePath)
-  const riskLevel = assessFileWriteRisk(filePath, mode as FileWriteMode, {
+  const riskLevel = assessFileWriteRisk(filePath, writeMode, {
     fileExists,
     extraFreeDirs: extraFreeDirsFromConfig(config),
   })
@@ -1917,7 +1935,7 @@ export async function writeTextFile(
     toolName: 'write_text_file',
     toolArgs: { 
       path: filePath, 
-      mode,
+      mode: writeMode,
       ...(content !== undefined && { content: content.length > 100 ? content.substring(0, 100) + '...' : content }),
       ...(insertAtLine !== undefined && { insert_at_line: insertAtLine }),
       ...(startLine !== undefined && { start_line: startLine }),
@@ -1932,7 +1950,7 @@ export async function writeTextFile(
     const approved = await executor.waitForConfirmation(
       toolCallId, 
       'write_text_file', 
-      args, 
+      { ...args, path: filePath, mode: writeMode }, 
       riskLevel
     )
     if (!approved) {
@@ -1965,24 +1983,11 @@ export async function writeTextFile(
     let resultMsg = ''
     const fileExistsNow = fs.existsSync(filePath)
 
-    switch (mode) {
-      case 'overwrite': {
+    switch (writeMode) {
+      case 'overwrite':
+      case 'create': {
         fs.writeFileSync(filePath, content!, 'utf-8')
         resultMsg = `${fileExistsNow ? t('file.result_overwritten') : t('file.result_created')}: ${filePath}`
-        break
-      }
-      case 'create': {
-        if (fileExistsNow) {
-          const errorMsg = t('error.file_exists_cannot_create', { path: filePath })
-          executor.addStep({
-            type: 'tool_result',
-            content: `❌ ${errorMsg}`,
-            toolName: 'write_text_file'
-          })
-          return { success: false, output: '', error: errorMsg }
-        }
-        fs.writeFileSync(filePath, content!, 'utf-8')
-        resultMsg = `${t('file.result_created')}: ${filePath}`
         break
       }
       case 'append': {
@@ -2191,54 +2196,6 @@ async function writeFileViaSftp(
   const contentLength = content.length
   const contentSizeKB = (contentLength / 1024).toFixed(1)
 
-  let operationDesc = ''
-  switch (mode) {
-    case 'overwrite':
-      operationDesc = `${t('file.overwrite')}: ${filePath}`
-      break
-    case 'create':
-      operationDesc = `${t('file.create')}: ${filePath}`
-      break
-    case 'append':
-      operationDesc = `${t('file.append')}: ${filePath}`
-      break
-  }
-
-  const riskLevel = assessFileWriteRisk(filePath, mode, {
-    extraFreeDirs: extraFreeDirsFromConfig(config),
-  })
-  {
-    const blocked = blockIfHardBlockedWrite(filePath, 'write_remote_text_file', riskLevel, executor)
-    if (blocked) return blocked
-  }
-  executor.addStep({
-    type: 'tool_call',
-    content: operationDesc,
-    toolName: 'write_remote_text_file',
-    toolArgs: { 
-      path: filePath, 
-      mode,
-      content: content.length > 100 ? content.substring(0, 100) + '...' : content
-    },
-    riskLevel
-  })
-
-  if (riskNeedsConfirm(riskLevel, config.executionMode, config.commandRiskPolicy)) {
-    const approved = await executor.waitForConfirmation(
-      toolCallId, 
-      'write_remote_text_file', 
-      { path: filePath, mode, content }, 
-      riskLevel
-    )
-    if (!approved) {
-      return { success: false, output: '', error: t('file.user_rejected_write') }
-    }
-  }
-
-  executor.terminalService.write(ptyId, `echo "📝 ${t('file.writing_remote', { path: filePath, size: contentSizeKB })}"\r`)
-  
-  await new Promise(resolve => setTimeout(resolve, 300))
-
   try {
     if (!sftpService.hasSession(ptyId)) {
       executor.addStep({
@@ -2261,27 +2218,69 @@ async function writeFileViaSftp(
       await sftpService.connect(ptyId, sftpConfig)
     }
 
+    let fileExists = false
+    try {
+      const kind = await sftpService.exists(ptyId, filePath)
+      fileExists = kind === '-' || kind === 'l'
+    } catch {
+      fileExists = false
+    }
+    const writeMode = resolveWriteModeIfTargetExists(mode, fileExists)
+
+    let operationDesc = ''
+    switch (writeMode) {
+      case 'overwrite':
+        operationDesc = `${t('file.overwrite')}: ${filePath}`
+        break
+      case 'create':
+        operationDesc = `${t('file.create')}: ${filePath}`
+        break
+      case 'append':
+        operationDesc = `${t('file.append')}: ${filePath}`
+        break
+    }
+
+    const riskLevel = assessFileWriteRisk(filePath, writeMode, {
+      fileExists,
+      extraFreeDirs: extraFreeDirsFromConfig(config),
+    })
+    {
+      const blocked = blockIfHardBlockedWrite(filePath, 'write_remote_text_file', riskLevel, executor)
+      if (blocked) return blocked
+    }
+    executor.addStep({
+      type: 'tool_call',
+      content: operationDesc,
+      toolName: 'write_remote_text_file',
+      toolArgs: {
+        path: filePath,
+        mode: writeMode,
+        content: content.length > 100 ? content.substring(0, 100) + '...' : content
+      },
+      riskLevel
+    })
+
+    if (riskNeedsConfirm(riskLevel, config.executionMode, config.commandRiskPolicy)) {
+      const approved = await executor.waitForConfirmation(
+        toolCallId,
+        'write_remote_text_file',
+        { path: filePath, mode: writeMode, content },
+        riskLevel
+      )
+      if (!approved) {
+        return { success: false, output: '', error: t('file.user_rejected_write') }
+      }
+    }
+
+    executor.terminalService.write(ptyId, `echo "📝 ${t('file.writing_remote', { path: filePath, size: contentSizeKB })}"\r`)
+
+    await new Promise(resolve => setTimeout(resolve, 300))
+
     let resultMsg: string
-    if (mode === 'create') {
-      let fileExists = false
-      try {
-        await sftpService.readFile(ptyId, filePath)
-        fileExists = true
-      } catch {
-        // 文件不存在
-      }
-      if (fileExists) {
-        const errorMsg = t('error.file_exists_cannot_create', { path: filePath })
-        executor.addStep({
-          type: 'tool_result',
-          content: `❌ ${errorMsg}`,
-          toolName: 'write_remote_text_file'
-        })
-        return { success: false, output: '', error: errorMsg }
-      }
+    if (writeMode === 'create' || writeMode === 'overwrite') {
       await sftpService.writeFile(ptyId, filePath, content)
-      resultMsg = `${t('file.result_remote_created')}: ${filePath}`
-    } else if (mode === 'append') {
+      resultMsg = `${fileExists ? t('file.result_remote_written') : t('file.result_remote_created')}: ${filePath}`
+    } else {
       let existingContent = ''
       try {
         existingContent = await sftpService.readFile(ptyId, filePath)
@@ -2290,9 +2289,6 @@ async function writeFileViaSftp(
       }
       await sftpService.writeFile(ptyId, filePath, existingContent + content)
       resultMsg = `${t('file.result_remote_appended')}: ${filePath}`
-    } else {
-      await sftpService.writeFile(ptyId, filePath, content)
-      resultMsg = `${t('file.result_remote_written')}: ${filePath}`
     }
 
     executor.terminalService.write(ptyId, `echo "✅ ${t('file.write_success')}: ${filePath}"\r`)

@@ -25,6 +25,7 @@ import {
   isScratchPath,
   isAutoApproveWorkspacePath,
   assessFileWriteRisk,
+  resolveWriteModeIfTargetExists,
 } from '../tools/file'
 
 describe('agent workspace paths', () => {
@@ -92,6 +93,21 @@ describe('agent workspace paths', () => {
     it('templates 内 overwrite 为 moderate', () => {
       const tpl = path.join(getWorkspacePath(), 'templates', 'report.docx')
       expect(assessFileWriteRisk(tpl, 'overwrite', { fileExists: true })).toBe('moderate')
+    })
+  })
+
+  describe('resolveWriteModeIfTargetExists', () => {
+    it('新建且目标已存在时改成覆盖', () => {
+      expect(resolveWriteModeIfTargetExists('create', true)).toBe('overwrite')
+    })
+
+    it('新建且目标不存在时仍是新建', () => {
+      expect(resolveWriteModeIfTargetExists('create', false)).toBe('create')
+    })
+
+    it('覆盖/追加不改', () => {
+      expect(resolveWriteModeIfTargetExists('overwrite', true)).toBe('overwrite')
+      expect(resolveWriteModeIfTargetExists('append', true)).toBe('append')
     })
   })
 })
