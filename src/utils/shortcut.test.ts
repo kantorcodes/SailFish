@@ -88,4 +88,9 @@ describe('decorateShortcut', () => {
     expect(decorateShortcut('', '（%s）')).toBe('')
     expect(decorateShortcut('↵', '（%s）')).toBe('（↵）')
   })
+
+  it('treats the label as plain text, including $', () => {
+    expect(decorateShortcut('$', '（%s）')).toBe('（$）')
+    expect(decorateShortcut('⌘$', '（%s）')).toBe('（⌘$）')
+  })
 })
