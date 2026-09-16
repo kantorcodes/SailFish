@@ -147,7 +147,7 @@ const translations = {
     'agent.context_limit_auto_compressed': '[系统] 对话上下文已超出模型限制，系统已自动压缩早期对话（保留最近 {keepRecent} 轮，释放约 {freed} tokens）。请基于压缩后的上下文继续完成任务。',
     'agent.context_limit_compress_failed': '[系统] 对话上下文已超出模型限制，且自动压缩未能释放足够空间。建议开始新对话或切换到上下文更长的模型。',
     'agent.compress_pair_no_reply': '[该任务没有最终答复：中途被打断或直接转入了下一件事]',
-    'agent.context_proactive_compressed': '[系统] 检测到上下文用量即将达到模型上限（基于上一轮真实 token 用量），系统已主动压缩早期对话（保留最近 {keepRecent} 轮，释放约 {freed} tokens）。请基于压缩后的上下文继续完成任务。如需原始对话细节，可调用 recall_compressed 工具找回。',
+    'agent.context_proactive_compressed': '[系统] 检测到上下文用量即将达到模型上限（基于上一轮真实 token 用量），系统已主动压缩早期对话（保留最近 {keepRecent} 轮，释放约 {freed} tokens）。请基于压缩后的上下文继续完成任务。如需原始对话细节，可调用 recall(archive_id) 找回。',
     'agent.compress_summary_prompt': `这段对话即将被归档，由你写的这份小结替代。
 
 归档后你手上会有：
@@ -156,7 +156,7 @@ const translations = {
 - 最近 {keepRecent} 轮完整对话（含工具调用与结果）
 - 你现在写的这份小结
 
-原文不会丢失，可用 recall_compressed 按 archive_id 取回，但每次取回要花一次工具调用。
+原文不会丢失，可用 recall(archive_id) 取回，但每次取回要花一次工具调用。
 
 除此之外的内容归档后都不在你眼前了——中间过程的工具输出、探测到的环境信息、失败的尝试、尚未反映在最终答复里的进展（例如已处理 30/57 这样的计数）。
 
@@ -175,7 +175,7 @@ const translations = {
     'agent.model_failover': '⚠️ 「{from}」连续无法使用，已切换到「{name}」继续。',
 
     // 上下文管理工具
-    'context_tool.compress_success': '上下文已压缩。压缩前: ~{before} tokens, 压缩后: ~{after} tokens, 释放: ~{freed} tokens。归档 ID: {archiveId}（可通过 recall_compressed 找回原始内容）',
+    'context_tool.compress_success': '上下文已压缩。压缩前: ~{before} tokens, 压缩后: ~{after} tokens, 释放: ~{freed} tokens。归档 ID: {archiveId}（可通过 recall(archive_id) 找回原始内容）',
     'context_tool.compress_nothing': '没有可压缩的消息（当前任务消息数不足）',
     'context_tool.unknown_action': '未知操作：{action}。可用 check（查看用量）或 compress（压缩）。',
     'context_tool.unknown_step': '上下文',
@@ -1135,6 +1135,11 @@ const translations = {
     'memory.related_history_header': '🔗 **相关历史详情**（自动加载）:',
     'memory.no_task_history': '当前没有可回忆的任务历史。',
     'memory.available_task_ids': '可用的任务 ID：',
+    'memory.listing_recallables': '列出这场还能取回的内容',
+    'memory.no_recallables': '这场里没有可回忆的任务或压缩归档。',
+    'memory.recall_how_to': '取任务用 task_id，取归档用 archive_id。',
+    'memory.recall_pick_one': '一次只取一种：给任务号或归档号，不要两个都给。',
+    'memory.recall_archive_not_for_subagent': '伙计不能取压缩归档。这场里刚收起来的原文，留给主人取。',
     'memory.recalling_task': '回忆任务 {taskId}',
     'memory.listing_tasks': '列出可用任务',
     'memory.task_recalled': '已回忆任务 {taskId}',
@@ -1753,7 +1758,7 @@ const translations = {
     'agent.context_limit_auto_compressed': '[System] Conversation context exceeded the model limit. System has auto-compressed earlier conversation (kept recent {keepRecent} rounds, freed ~{freed} tokens). Please continue the task based on the compressed context.',
     'agent.context_limit_compress_failed': '[System] Conversation context exceeded the model limit, and auto-compression could not free enough space. Consider starting a new conversation or switching to a model with a longer context window.',
     'agent.compress_pair_no_reply': '[This task has no final reply: it was interrupted or moved on to something else]',
-    'agent.context_proactive_compressed': '[System] Context usage is approaching the model limit (based on last turn\'s actual token usage). System has proactively compressed earlier conversation (kept recent {keepRecent} rounds, freed ~{freed} tokens). Please continue the task based on the compressed context. To retrieve original conversation details, use the recall_compressed tool.',
+    'agent.context_proactive_compressed': '[System] Context usage is approaching the model limit (based on last turn\'s actual token usage). System has proactively compressed earlier conversation (kept recent {keepRecent} rounds, freed ~{freed} tokens). Please continue the task based on the compressed context. To retrieve original conversation details, use recall(archive_id).',
     'agent.compress_summary_prompt': `This conversation is about to be archived and replaced by the summary you write here.
 
 After archiving, what you will still have:
@@ -1762,7 +1767,7 @@ After archiving, what you will still have:
 - The most recent {keepRecent} rounds of full conversation (including tool calls and results)
 - The summary you are writing now
 
-The originals are not lost: they can be retrieved with recall_compressed by archive_id, though each retrieval costs a tool call.
+The originals are not lost: they can be retrieved with recall(archive_id), though each retrieval costs a tool call.
 
 Everything else will be out of your sight after archiving — intermediate tool output, environment details you probed, attempts that failed, and progress not yet reflected in any final reply (such as a count like 30/57 done).
 
@@ -1781,7 +1786,7 @@ This step only writes the summary and performs no action, so just output the tex
     'agent.model_failover': '⚠️ "{from}" kept failing. Switched to "{name}" to continue.',
 
     // Context management tools
-    'context_tool.compress_success': 'Context compressed. Before: ~{before} tokens, After: ~{after} tokens, Freed: ~{freed} tokens. Archive ID: {archiveId} (use recall_compressed to retrieve original content)',
+    'context_tool.compress_success': 'Context compressed. Before: ~{before} tokens, After: ~{after} tokens, Freed: ~{freed} tokens. Archive ID: {archiveId} (use recall(archive_id) to retrieve original content)',
     'context_tool.compress_nothing': 'No messages to compress (insufficient task messages)',
     'context_tool.unknown_action': 'Unknown action: {action}. Use check (inspect usage) or compress.',
     'context_tool.unknown_step': 'Context',
@@ -2741,6 +2746,11 @@ Calendar, Todo, Bitable, Drive and Wiki operations require the user's union_id:
     'memory.related_history_header': '🔗 **Related History** (auto-loaded):',
     'memory.no_task_history': 'No task history available.',
     'memory.available_task_ids': 'Available task IDs:',
+    'memory.listing_recallables': 'Listing what can still be recalled in this conversation',
+    'memory.no_recallables': 'Nothing to recall in this conversation — no prior tasks or compressed archives.',
+    'memory.recall_how_to': 'Use task_id for a prior task, archive_id for a compressed archive.',
+    'memory.recall_pick_one': 'Give either a task id or an archive id, not both.',
+    'memory.recall_archive_not_for_subagent': 'Sub-agents cannot retrieve compressed archives. Leave that to the parent.',
     'memory.recalling_task': 'Recalling task {taskId}',
     'memory.listing_tasks': 'Listing available tasks',
     'memory.task_recalled': 'Recalled task {taskId}',

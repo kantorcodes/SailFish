@@ -16,8 +16,8 @@ tools/
 ├── file.ts         # 文件操作 (read_file, write_text_file, edit_file 等)
 ├── knowledge.ts    # 知识库 (search_knowledge, get_knowledge_doc)
 ├── plan.ts         # 计划/待办 (create_plan, update_plan, clear_plan)
-├── memory.ts       # 任务记忆 (recall_task, deep_recall)
-├── context.ts      # 上下文管理 (context, recall_compressed, manage_memory)
+├── memory.ts       # 这场回忆 (recall) + 跨场搜索 (search_history)
+├── context.ts      # 上下文管理 (context, manage_memory；归档取回经 recall)
 ├── sub-agent.ts    # 并行子 Agent (dispatch_agents)
 ├── misc.ts         # 其他工具 (wait, ask_user, MCP, 技能工具)
 └── README.md       # 本文档
@@ -61,9 +61,9 @@ tools/
 - `update_plan` - 更新计划步骤状态
 - `clear_plan` - 归档/清除计划
 
-### 任务记忆 (memory.ts)
-- `recall_task` - 回忆任务摘要
-- `deep_recall` - 获取任务详细步骤
+### 这场回忆 (memory.ts)
+- `recall` - 上一件事（摘要/全文）或刚收起来的原文；不带号则列出还能取什么
+- `search_history` - 跨会话翻旧账
 
 ### 并行子 Agent (sub-agent.ts)
 - `dispatch_agents` - 将多个独立子任务分派给并行子 Agent 同时执行

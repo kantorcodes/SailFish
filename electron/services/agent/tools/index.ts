@@ -253,7 +253,6 @@ export async function executeTool(
       return checkContext(executor)
     case 'compress_context':
       return compressContext(args, executor)
-
     case 'recall_compressed':
       return recallCompressed(args, executor)
 

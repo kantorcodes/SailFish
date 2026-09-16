@@ -1,26 +1,134 @@
 /**
  * 任务记忆工具
- * 包括：回忆任务摘要、深度回忆任务详情、搜索历史对话（关键字 + 语义）
+ * 包括：这场回忆（上一件事 / 刚收起来的原文）、搜索历史对话（关键字 + 语义）
  */
 import { t } from '../i18n'
 import { getKnowledgeService } from '../../knowledge'
 import { truncateFromEnd } from './utils'
 import type { ToolExecutorConfig, ToolResult } from './types'
 import { isAbortError } from '../../../utils/abort'
+import { recallCompressed } from './context'
+
+function asId(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
+}
 
 /**
- * recall 工具统一入口：根据 detail 分发到 recallTask / deepRecall
+ * recall 统一入口：归档号取压缩原文，任务号取这场更早的事，都不带则列出还能取什么。
  */
 export function dispatchRecall(
   args: Record<string, unknown>,
   executor: ToolExecutorConfig,
   _ptyId: string | undefined
 ): ToolResult {
+  const archiveId = asId(args.archive_id)
+  const taskId = asId(args.task_id)
+  if (archiveId) args.archive_id = archiveId
+  if (taskId) args.task_id = taskId
+
+  if (archiveId && taskId) {
+    const error = t('memory.recall_pick_one')
+    executor.addStep({
+      type: 'tool_call',
+      content: error,
+      toolName: 'recall',
+      toolArgs: args,
+      riskLevel: 'safe'
+    })
+    executor.addStep({
+      type: 'tool_result',
+      content: error,
+      toolName: 'recall',
+      toolResult: error
+    })
+    return { success: false, output: '', error }
+  }
+
+  if (archiveId) {
+    if (executor.isSubAgent) {
+      const error = t('memory.recall_archive_not_for_subagent')
+      executor.addStep({
+        type: 'tool_call',
+        content: error,
+        toolName: 'recall',
+        toolArgs: args,
+        riskLevel: 'safe'
+      })
+      executor.addStep({
+        type: 'tool_result',
+        content: error,
+        toolName: 'recall',
+        toolResult: error
+      })
+      return { success: false, output: '', error }
+    }
+    return recallCompressed(args, executor)
+  }
+
+  if (!taskId) {
+    return listRecallables(executor, args)
+  }
+
   const detail = args.detail as string | undefined
   if (detail === 'full') {
     return deepRecall(args, executor, _ptyId)
   }
   return recallTask(args, executor, _ptyId)
+}
+
+function listRecallables(
+  executor: ToolExecutorConfig,
+  args: Record<string, unknown>
+): ToolResult {
+  executor.addStep({
+    type: 'tool_call',
+    content: t('memory.listing_recallables'),
+    toolName: 'recall',
+    toolArgs: args,
+    riskLevel: 'safe'
+  })
+
+  const summaries = executor.getTaskMemory().getSummaries(20)
+  const archives = executor.getCompressedArchives?.() ?? []
+  const lines: string[] = []
+
+  if (summaries.length > 0) {
+    lines.push(t('memory.available_task_ids'), '')
+    for (const s of summaries) {
+      lines.push(`- [${s.id}] ${s.summary}`)
+    }
+  }
+
+  if (archives.length > 0) {
+    if (lines.length > 0) lines.push('')
+    lines.push(t('context_tool.recall_list'), '')
+    for (const arc of archives) {
+      lines.push(`- **${arc.id}**: ${arc.summary} (${arc.messageCount} messages)`)
+    }
+  }
+
+  if (lines.length === 0) {
+    const msg = t('memory.no_recallables')
+    executor.addStep({
+      type: 'tool_result',
+      content: msg,
+      toolName: 'recall',
+      toolResult: msg
+    })
+    return { success: true, output: msg }
+  }
+
+  lines.push('', t('memory.recall_how_to'))
+  const output = lines.join('\n')
+  executor.addStep({
+    type: 'tool_result',
+    content: t('memory.listing_recallables'),
+    toolName: 'recall',
+    toolResult: output
+  })
+  return { success: true, output }
 }
 
 /**

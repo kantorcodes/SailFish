@@ -170,7 +170,7 @@ export interface AgentRun {
    * 避免 thinking 模式下丢失 reasoning_content 字段导致下轮任务被 DeepSeek 服务端拒绝。
    */
   lastAssistantReasoningContent?: string
-  // 压缩归档：compress_context 工具将被压缩的原始消息归档在此，可通过 recall_compressed 找回
+  // 压缩归档：压缩后的原始消息归档在此，可通过 recall(archive_id) 找回
   compressedArchives?: Array<{
     id: string                                        // 归档 ID，如 "ca-1"
     messages: import('../ai.service').AiMessage[]     // 被压缩的原始消息

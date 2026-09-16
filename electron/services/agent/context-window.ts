@@ -575,7 +575,7 @@ export class ContextWindowManager {
     const kept = content.slice(0, capTokens)
     return {
       ...msg,
-      content: `${kept}\n\n[内容过长已截断，完整原文见归档 "${archiveId}"，可用 recall_compressed 取回]`
+      content: `${kept}\n\n[内容过长已截断，完整原文见归档 "${archiveId}"，可用 recall(archive_id: "${archiveId}") 取回]`
     }
   }
 
@@ -631,7 +631,7 @@ export class ContextWindowManager {
     // 替换:用一条摘要消息替换被压缩的消息
     const summaryMessage: AiMessage = {
       role: 'assistant',
-      content: `[早期对话已压缩，归档 ID: "${archiveId}"。如需查看原始内容，请调用 recall_compressed(archive_id: "${archiveId}")。]\n\n${summary}`
+      content: `[早期对话已压缩，归档 ID: "${archiveId}"。如需查看原始内容，请调用 recall(archive_id: "${archiveId}")。]\n\n${summary}`
     }
 
     log.info(
@@ -887,7 +887,7 @@ export class ContextWindowManager {
       const afterUsage = this.estimateTotalTokens(run.messages) / this.getInputLimit()
       if (afterUsage > 0.9) {
         // 降级到 keepRecent=1 时归档范围比摘要装配时多一组最近轮次（该轮未进摘要但完整在归档里），补说明避免误读
-        const result2 = this.compressWithRange(run, summary + '\n\n（注：归档后上下文仍紧张，归档范围扩大为仅保留最近 1 轮；多归档的那一轮未纳入本摘要，但完整内容仍在归档中，可用 recall_compressed 查看。）', 1)
+        const result2 = this.compressWithRange(run, summary + '\n\n（注：归档后上下文仍紧张，归档范围扩大为仅保留最近 1 轮；多归档的那一轮未纳入本摘要，但完整内容仍在归档中，可用 recall(archive_id) 查看。）', 1)
         if (result2) {
           result = result2
         }
@@ -913,7 +913,7 @@ export class ContextWindowManager {
    */
   private buildEmergencySummary(): string {
     return '【系统自动压缩】此前的对话因超出模型上下文限制已被紧急归档。' +
-      '关键信息摘要请参考上方的 task_memory / 知识文档；如需原始对话细节，请调用 recall_compressed 工具按 archive_id 找回。'
+      '关键信息摘要请参考上方的 task_memory / 知识文档；如需原始对话细节，请调用 recall(archive_id) 找回。'
   }
 
   /**
@@ -923,7 +923,7 @@ export class ContextWindowManager {
   private buildProactiveTemplateSummary(): string {
     return '【系统主动压缩】检测到上下文用量即将达到模型上限（基于上一轮真实 token 用量），' +
       '为避免本轮请求超限，已提前归档早期对话。关键信息摘要请参考上方的 task_memory / 知识文档；' +
-      '如需原始对话细节，请调用 recall_compressed 工具按 archive_id 找回。'
+      '如需原始对话细节，请调用 recall(archive_id) 找回。'
   }
 
   /**

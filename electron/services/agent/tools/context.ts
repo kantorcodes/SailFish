@@ -1,6 +1,6 @@
 /**
  * 上下文管理工具
- * 包括：context（查看用量 / 压缩当前对话）、recall_compressed（找回归档）、manage_memory（跨任务记忆管理）
+ * 包括：context（查看用量 / 压缩当前对话）、归档取回实现（经 recall 入口）、manage_memory（跨任务记忆管理）
  */
 import { t } from '../i18n'
 import type { ToolExecutorConfig, ToolResult } from './types'
@@ -310,7 +310,7 @@ export function compressContext(
 }
 
 /**
- * recall_compressed: 找回被压缩归档的原始消息
+ * 取回压缩归档的原始消息（经 recall(archive_id) 或旧名 recall_compressed）
  */
 export function recallCompressed(
   args: Record<string, unknown>,
@@ -323,7 +323,7 @@ export function recallCompressed(
     content: archiveId
       ? t('context_tool.recall_step', { archiveId })
       : t('context_tool.recall_list'),
-    toolName: 'recall_compressed',
+    toolName: 'recall',
     toolArgs: args,
     riskLevel: 'safe'
   })
@@ -335,7 +335,7 @@ export function recallCompressed(
       executor.addStep({
         type: 'tool_result',
         content: msg,
-        toolName: 'recall_compressed',
+        toolName: 'recall',
         toolResult: msg
       })
       return { success: true, output: msg }
@@ -347,7 +347,7 @@ export function recallCompressed(
       executor.addStep({
         type: 'tool_result',
         content: msg,
-        toolName: 'recall_compressed',
+        toolName: 'recall',
         toolResult: msg
       })
       return { success: true, output: msg }
@@ -362,7 +362,7 @@ export function recallCompressed(
     executor.addStep({
       type: 'tool_result',
       content: t('context_tool.recall_list'),
-      toolName: 'recall_compressed',
+      toolName: 'recall',
       toolResult: output
     })
 
@@ -375,7 +375,7 @@ export function recallCompressed(
     executor.addStep({
       type: 'tool_result',
       content: msg,
-      toolName: 'recall_compressed',
+      toolName: 'recall',
       toolResult: msg
     })
     return { success: false, output: '', error: msg }
@@ -387,7 +387,7 @@ export function recallCompressed(
     executor.addStep({
       type: 'tool_result',
       content: msg,
-      toolName: 'recall_compressed',
+      toolName: 'recall',
       toolResult: msg
     })
     return { success: false, output: '', error: msg }
@@ -432,7 +432,7 @@ export function recallCompressed(
   executor.addStep({
     type: 'tool_result',
     content: t('context_tool.recall_step', { archiveId }),
-    toolName: 'recall_compressed',
+    toolName: 'recall',
     toolResult: output
   })
 

@@ -631,7 +631,7 @@ describe('ContextWindowManager.emergencyCompress', () => {
     expect(nextCompressedArchiveId([{ id: 'ca-1' }, { id: 'ca-3' }])).toBe('ca-4')
   })
 
-  it('摘要消息含 recall_compressed 指引（让 AI 知道可以找回归档）', () => {
+  it('摘要消息含 recall(archive_id) 指引（让 AI 知道可以找回归档）', () => {
     const m = new ContextWindowManager(makeDeps())
     const run = makeRun([
       user('do'),
@@ -644,7 +644,7 @@ describe('ContextWindowManager.emergencyCompress', () => {
     const summaryMsg = run.messages[1]
     expect(summaryMsg.role).toBe('assistant')
     expect(typeof summaryMsg.content).toBe('string')
-    expect((summaryMsg.content as string).includes('recall_compressed')).toBe(true)
+    expect((summaryMsg.content as string).includes('recall(archive_id')).toBe(true)
     expect((summaryMsg.content as string).includes('系统自动压缩')).toBe(true)
   })
 })
@@ -791,7 +791,7 @@ describe('ContextWindowManager.proactiveCompress', () => {
     expect(summaryMsg.role).toBe('assistant')
     expect((summaryMsg.content as string).includes('系统主动压缩')).toBe(true)
     expect((summaryMsg.content as string).includes('系统自动压缩')).toBe(false)  // 不能是 emergency 文案
-    expect((summaryMsg.content as string).includes('recall_compressed')).toBe(true)
+    expect((summaryMsg.content as string).includes('recall(archive_id')).toBe(true)
   })
 
   it('keepRecent=2 后仍超 90% → 自动降到 keepRecent=1', async () => {
@@ -1094,7 +1094,7 @@ describe('ContextWindowManager — 历史任务成对保留', () => {
     const userMsg = contents.find(c => c.startsWith('帮我看这段日志'))
     expect(userMsg).toBeDefined()
     expect(userMsg!.length).toBeLessThan(huge.length)
-    expect(userMsg).toContain('recall_compressed')
+    expect(userMsg).toContain('recall(archive_id')
     // 配对的答复没受牵连
     expect(contents).toContain('看完了，是磁盘满')
   })

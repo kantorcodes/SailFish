@@ -89,7 +89,8 @@ describe('上下文查看与压缩常驻', () => {
   it.each<AgentMode>(['local', 'ssh', 'assistant'])('%s 模式下不用等到高水位就有', (mode) => {
     const names = getAgentTools(undefined, { mode }).map(t => t.function.name)
     expect(names).toContain('context')
-    expect(names).toContain('recall_compressed')
+    expect(names).toContain('recall')
+    expect(names).not.toContain('recall_compressed')
     expect(names).not.toContain('check_context')
     expect(names).not.toContain('compress_context')
     expect(names).not.toContain('manage_memory')
@@ -113,6 +114,8 @@ describe('上下文查看与压缩常驻', () => {
     const desc = describeOf('assistant', 'context')
     expect(desc).toContain('check')
     expect(desc).toContain('compress')
+    expect(desc).toContain('recall(archive_id)')
+    expect(desc).not.toContain('recall_compressed')
     expect(desc).toContain('系统说明里的取向')
     expect(desc).not.toContain('总账')
     expect(describeOf('assistant', 'context')).toBe(describeOf('local', 'context'))

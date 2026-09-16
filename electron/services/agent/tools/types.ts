@@ -101,7 +101,7 @@ export interface ToolExecutorConfig {
   pluginRegistry?: import('../../plugin/registry').PluginRegistry
   /** 当前上下文用量（context 工具使用）。剩余量含本轮新增，属估算 */
   getContextUsage?: () => { used: number; total: number; remaining: number }
-  // 上下文管理（compress_context / recall_compressed 工具使用）
+  // 上下文管理（context 压缩 / recall 取回归档）
   compressCurrentContext?: (summary: string, keepRecent: number) => {
     beforeTokens: number
     afterTokens: number

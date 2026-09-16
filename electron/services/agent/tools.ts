@@ -1009,32 +1009,41 @@ local_path 填相对路径时也归一到 workspace 内；填绝对路径才落�
       _meta: { allowedForSubAgent: false }
     } as ToolDefinitionWithMeta,
     buildSkillTool(mcpService),
-    // ==================== 任务记忆工具（合并 recall_task/deep_recall） ====================
+    // ==================== 这场回忆（上一件事 / 刚收起来的原文） ====================
     {
       type: 'function',
       function: {
         name: 'recall',
-        description: `回忆之前任务的信息。默认返回摘要（命令、路径、错误、关键发现），设 detail="full" 获取完整执行步骤。
+        description: `回忆这场对话里不在眼前的内容。上一件已做完的事、刚被压缩收起来的原文，都从这里取。翻别的对话请用 search_history。
 
-上下文中的"任务历史"列表显示了所有可回忆的任务 ID。`,
+- 任务号（task_id）：取该任务。默认摘要（命令、路径、错误、关键发现），detail="full" 给完整执行步骤。
+- 归档号（archive_id）：取压缩时收走的原文。
+- 两个都不带（只带 detail 也算）：列出这场里还能取什么。
+- 两个都给：请只给一个。
+- 取任务必须带 task_id；取归档必须带 archive_id。
+
+上下文中的「任务历史」列出可回忆的任务号；压缩成功后会告诉你归档号。`,
         parameters: {
           type: 'object',
           properties: {
             task_id: {
               type: 'string',
-              description: '任务 ID'
+              description: '任务 ID。与 archive_id 二选一'
+            },
+            archive_id: {
+              type: 'string',
+              description: '压缩归档 ID（如 "ca-1"）。与 task_id 二选一'
             },
             detail: {
               type: 'string',
               enum: ['summary', 'full'],
-              description: '详细程度，默认 summary'
+              description: '取任务时的详细程度，默认 summary。取归档时忽略'
             },
             step_index: {
               type: 'number',
-              description: 'detail=full 时可指定步骤索引（从 0 开始）'
+              description: '取任务且 detail=full 时可指定步骤索引（从 0 开始）'
             }
-          },
-          required: ['task_id']
+          }
         }
       },
       _meta: { parallelizable: true }
@@ -1448,7 +1457,7 @@ export function stripToolMeta(tools: readonly ToolDefinition[]): ToolDefinition[
 }
 
 /**
- * 查看/压缩 + 取回归档：从一开始就在。
+ * 查看/压缩：从一开始就在。取回归档已并进 recall。
  */
 function getAlwaysOnContextTools(): ToolDefinition[] {
   return [
@@ -1459,7 +1468,7 @@ function getAlwaysOnContextTools(): ToolDefinition[] {
         description: `查看或压缩当前对话占用的上下文。
 
 - check：只回报已用 / 上限 / 剩余（估算，含本轮新增）。不附带该不该压的判断。
-- compress：把较早的过程收成交接小结并归档，可用 recall_compressed 取回。
+- compress：把较早的过程收成交接小结并归档，可用 recall(archive_id) 取回。
 
 该不该自己压，以系统说明里的取向为准。查的时候只给你报数。
 
@@ -1493,23 +1502,6 @@ compress 的 summary 是写给未来的你自己的——压缩后你将基于�
         streamDisplay: { titleKey: contextToolTitleKey },
         allowedForSubAgent: false,
       }
-    } as ToolDefinitionWithMeta,
-    {
-      type: 'function',
-      function: {
-        name: 'recall_compressed',
-        description: `从压缩归档中取回原始消息。省略 archive_id 则列出所有可用归档。`,
-        parameters: {
-          type: 'object',
-          properties: {
-            archive_id: {
-              type: 'string',
-              description: '要取回的归档 ID（如 "ca-1"），省略则列出所有可用归档'
-            }
-          }
-        }
-      },
-      _meta: { allowedForSubAgent: false }
     } as ToolDefinitionWithMeta
   ]
 }

@@ -410,8 +410,8 @@ function formatToolNotification(toolName: string, toolArgs?: Record<string, unkn
     if (msg) detail = `  ${truncate(String(msg))}`
   } else if (toolName === 'send_to_chat' && args.file_path) {
     detail = `  ${truncate(String(args.file_path))}`
-  } else if (toolName === 'recall' && args.task_id) {
-    detail = `  ${truncate(String(args.task_id))}`
+  } else if ((toolName === 'recall' || toolName === 'recall_compressed') && (args.task_id || args.archive_id)) {
+    detail = `  ${truncate(String(args.task_id || args.archive_id))}`
   } else if (toolName === 'get_knowledge_doc' && args.doc_id) {
     detail = `  ${truncate(String(args.doc_id))}`
   } else if (toolName === 'plan' && args.title) {
