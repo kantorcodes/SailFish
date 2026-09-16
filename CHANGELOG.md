@@ -2,7 +2,31 @@
 
 All notable changes to SailFish will be documented in this file.
 
-## v11.10.0 (2026-09-08) (Latest)
+## v11.11.0 (2026-09-16) (Latest)
+
+> Send and queue shortcuts can be changed. Multiple terminal panes can be rearranged. Context compacting is more complete, and you can compact by hand.
+
+### New Features
+- 🎯 **Richer context compacting**: Type `/compact` in the input to compact even when there is still room. Settings have four levels (More / Balanced / Less / Off) for how proactive the secretary is; near-full and a manual compact are unchanged. Compacted text and the previous turn come back through the same path
+- 🎯 **Custom send and queue shortcuts**: Enter still sends and ⌘/Ctrl+Enter still queues by default, and only in the input. Shortcuts in Settings are ordered by how often they are used
+- 🎯 **Rearrange terminal panes**: Drag side-by-side panes to swap them; drop a host or the plus button on an edge to open a new one. A remote connection shows the pane first; a failure stays in that pane
+
+### Improvements
+- ⚡ **Token use shows speed**: Hover the usage to see how fast this stretch is coming out; after it stops, that becomes the average for the stretch that just finished
+- ⚡ **Very long commands are written to a file**: When a command is too long, the generated text is saved on the machine that will run it, and only the path is sent
+
+### Bug Fixes
+- 🐛 **Two chats no longer steal the browser from each other**
+- 🐛 **Very large HTML artifact previews can be scrolled and dragged**
+- 🐛 **In a full-window artifact, the tab bar leaves room for the window buttons**
+- 🐛 **When the output cap equals the window, input quota is no longer reduced to zero**
+- 🐛 **Large chart data is no longer poured back into the chat over and over**
+- 🐛 **Bold next to Chinese punctuation no longer shows leftover asterisks**
+- 🐛 **Canceling a connection no longer shows an English error you cannot use**
+- 🐛 **A message sent while connecting is no longer dropped**
+- 🐛 **A pane that is still connecting no longer stacks another reconnect**
+
+## v11.10.0 (2026-09-08)
 
 > Documents can fill the window for reading, with the conversation tucked into a bar at the bottom. In a web preview, you can select a passage and have only that part changed. Hosts can be added, edited, or removed by asking the secretary, and the host list is easier to use.
 
