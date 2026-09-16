@@ -56,3 +56,11 @@ export function resolveExactSlash(text: string, defs: SlashCommandDef[] = SLASH_
   if (!def) return null
   return { def, hint: parsed.rest }
 }
+
+/** 补全条只在还没对上完整命令名时出现；已经是 /compact 或后面开始写补充就收起来。 */
+export function shouldShowSlashHint(text: string, defs: SlashCommandDef[] = SLASH_COMMANDS): boolean {
+  const parsed = parseLeadingSlash(text.trimStart())
+  if (!parsed) return false
+  if (exactSlashCommand(parsed.name, defs)) return false
+  return matchSlashCommands(parsed.name, defs).length > 0
+}

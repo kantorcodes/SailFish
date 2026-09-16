@@ -5,7 +5,8 @@ import {
   matchSlashCommands,
   parseLeadingSlash,
   primarySlashName,
-  resolveExactSlash
+  resolveExactSlash,
+  shouldShowSlashHint
 } from '../slash-commands'
 
 describe('parseLeadingSlash', () => {
@@ -35,6 +36,18 @@ describe('exactSlashCommand', () => {
     expect(exactSlashCommand('压缩')?.id).toBe('compact')
     expect(exactSlashCommand('c')).toBeNull()
     expect(primarySlashName(exactSlashCommand('压缩')!)).toBe('compact')
+  })
+})
+
+describe('shouldShowSlashHint', () => {
+  it('只在还没对上完整命令名时出现', () => {
+    expect(shouldShowSlashHint('/')).toBe(true)
+    expect(shouldShowSlashHint('/c')).toBe(true)
+    expect(shouldShowSlashHint('/compact')).toBe(false)
+    expect(shouldShowSlashHint('/compact 好')).toBe(false)
+    expect(shouldShowSlashHint('/压缩')).toBe(false)
+    expect(shouldShowSlashHint('/zzz')).toBe(false)
+    expect(shouldShowSlashHint('hello')).toBe(false)
   })
 })
 

@@ -10,6 +10,7 @@ import {
   parseLeadingSlash,
   primarySlashName,
   resolveExactSlash,
+  shouldShowSlashHint,
   type SlashCommandDef
 } from '../composables/slash-commands'
 import { decorateShortcut, formatAccelerator, resolveComposerChord } from '../utils/shortcut'
@@ -819,7 +820,10 @@ const slashMatches = computed(() => {
   if (showMentionMenu.value || !parsedSlash.value) return []
   return matchSlashCommands(parsedSlash.value.name)
 })
-const slashHintVisible = computed(() => slashMatches.value.length > 0)
+const slashHintVisible = computed(() => {
+  if (showMentionMenu.value) return false
+  return shouldShowSlashHint(inputText.value)
+})
 const slashHighlight = computed(() => {
   if (!parsedSlash.value || slashMatches.value.length === 0) return null
   const leading = inputText.value.match(/^\s*/)?.[0] ?? ''
