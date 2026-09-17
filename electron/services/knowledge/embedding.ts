@@ -27,16 +27,58 @@ const log = createLogger('Embedding')
 
 let inProcPipeline: any = null
 let inProcEnv: any = null
+let inProcOrtBackend: 'native' | 'wasm' | null = null
+
+function loadOrtNativeHelper(): {
+  applyLocalWasmPaths: (env: unknown) => void
+  ensureOnnxRuntimeBackend: () => 'native' | 'wasm'
+} | null {
+  const fs = require('fs') as typeof import('fs')
+  const candidates = [
+    path.join(path.dirname(getWorkerScriptPath()), 'ort-native.js'),
+    process.resourcesPath
+      ? path.join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'dist-electron',
+          'services',
+          'knowledge',
+          'ort-native.js',
+        )
+      : '',
+    path.join(process.cwd(), 'electron', 'services', 'knowledge', 'ort-native.js'),
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require(candidate)
+      }
+    } catch {
+      /* 试下一个 */
+    }
+  }
+  return null
+}
 
 async function loadTransformersInProc() {
   if (!inProcPipeline) {
+    const helper = loadOrtNativeHelper()
+    inProcOrtBackend = helper?.ensureOnnxRuntimeBackend() ?? 'native'
+    if (inProcOrtBackend === 'wasm') {
+      log.warn('onnxruntime-node 加载失败，进程内路径改用 WASM')
+    }
     const transformers = await import('@huggingface/transformers')
     inProcPipeline = transformers.pipeline
     inProcEnv = transformers.env
     inProcEnv.allowLocalModels = true
     inProcEnv.allowRemoteModels = false
+    if (inProcOrtBackend === 'wasm') {
+      helper?.applyLocalWasmPaths(inProcEnv)
+    }
   }
-  return { pipeline: inProcPipeline, env: inProcEnv }
+  return { pipeline: inProcPipeline, env: inProcEnv, backend: inProcOrtBackend }
 }
 
 // ────────────────────────── Worker 路径解析 ──────────────────────────
@@ -51,21 +93,28 @@ async function loadTransformersInProc() {
 function getWorkerScriptPath(): string {
   // app.isPackaged 只在加载到 electron 模块后可用，CLI 环境下访问会拿到 stub 的 false
   // 这里走文件存在性兜底：先查打包后路径，再查开发路径
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { app } = require('electron')
-    if (app && app.isPackaged) {
-      return path.join(
+  const packaged = process.resourcesPath
+    ? path.join(
         process.resourcesPath,
         'app.asar.unpacked',
         'dist-electron',
         'services',
         'knowledge',
-        'embedding-worker.js'
+        'embedding-worker.js',
       )
+    : ''
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { app } = require('electron')
+    if (app && app.isPackaged && packaged) {
+      return packaged
     }
   } catch {
     // ignore: 非 Electron 环境
+  }
+  const fs = require('fs') as typeof import('fs')
+  if (packaged && fs.existsSync(packaged)) {
+    return packaged
   }
   return path.join(process.cwd(), 'electron', 'services', 'knowledge', 'embedding-worker.js')
 }
@@ -268,6 +317,9 @@ export class EmbeddingService extends EventEmitter {
         await this.startWorker()
         const initPayload = this.buildWorkerInitPayload(modelDir, modelName, pipelineDevice)
         const initResult = await this.callWorker('initialize', initPayload)
+        if (initResult?.backend === 'wasm') {
+          log.warn('原生 ONNX 不可用，已改用 WASM（较慢）')
+        }
         return {
           useWorker: true,
           device: (initResult?.device ?? pipelineOpts.device) as EmbeddingDevice,
@@ -277,7 +329,7 @@ export class EmbeddingService extends EventEmitter {
         const detail = workerError instanceof Error ? workerError.message : String(workerError)
         const err = new Error(
           `Embedding worker 初始化失败（禁止回退主进程）：${detail}。` +
-            `若为打包版，请检查 asarUnpack 是否包含 onnxruntime-common / @huggingface/jinja|tokenizers / sharp 传递依赖（detect-libc、@img/colour、semver）。`,
+            `若为打包版，请检查 asarUnpack 是否包含 onnxruntime-web / onnxruntime-common / @huggingface/jinja|tokenizers / sharp 传递依赖。`,
         )
         log.error(err.message, workerError)
         throw err
@@ -285,11 +337,14 @@ export class EmbeddingService extends EventEmitter {
     }
 
     // CLI / shim：utilityProcess 不可用，进程内是唯一模式
-    const { pipeline, env } = await loadTransformersInProc()
+    const { pipeline, env, backend } = await loadTransformersInProc()
     env.allowRemoteModels = false
     env.localModelPath = modelDir
-    this.extractor = await pipeline('feature-extraction', modelName, pipelineOpts)
-    return { useWorker: false, device: pipelineOpts.device }
+    const inProcOpts = backend === 'wasm'
+      ? { ...pipelineOpts, device: 'cpu' as const }
+      : pipelineOpts
+    this.extractor = await pipeline('feature-extraction', modelName, inProcOpts)
+    return { useWorker: false, device: inProcOpts.device }
   }
 
   /**

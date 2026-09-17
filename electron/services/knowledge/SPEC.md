@@ -1,8 +1,15 @@
 # Knowledge Service SPEC
 
-> Last verified: 2026-08-29
+> Last verified: 2026-09-16
 
 ## 设计目标
+
+### 原生加速库加载失败时，语义搜索仍要能用（2026-09-16）
+
+- **问题**：部分 Windows（尤其 Server、没有独立显卡）上，本地语义搜索整条挂掉。原生加速库在加载阶段就失败，后面的「加速不行再改用 CPU」走不到，知识库搜索也跟着废。
+- **成功标准**：原生加速库加载失败时，语义搜索仍能用，只是会慢一些。仍在独立进程里跑，不回到主进程。按文件名搜、按关键词搜不受影响。
+- **关键取舍**：宁可慢，也不能整条搜索陪葬。不靠猜错误文案来分类，而是先试加载原生库，失败再用一套不依赖系统显卡的实现。
+- **明确不做**：不往安装目录塞系统 DLL；失败后不把推理拉回主进程；不为这种机器单独再打一份安装包。
 
 ### 给人用的备份只留数据管理一套（2026-08-29）
 
@@ -41,7 +48,7 @@
 
 - **问题**：Embedding / LanceDB 设计进 utilityProcess；打包 `asarUnpack` 缺传递依赖时 worker ESM 失败，旧逻辑 `warn` 后回退主进程——功能「看似能用」，Windows 上堵 UI，测试也发现不了。
 - **成功标准**：
-  - worker 所需依赖必须在 `asarUnpack` 物理目录，ESM `import()` / `require` 可解析。清单至少覆盖：`onnxruntime-common`、`apache-arrow`、`@huggingface/jinja`、`@huggingface/tokenizers`、以及 `transformers→sharp` 的 `detect-libc` / `@img/colour` / `semver`、`lancedb` 的 `reflect-metadata`、`apache-arrow` 的 `tslib` / `flatbuffers`。unpacked 包无法再解析仍在 asar 内的依赖。
+  - worker 所需依赖必须在 `asarUnpack` 物理目录，ESM `import()` / `require` 可解析。清单至少覆盖：`onnxruntime-common`、`onnxruntime-web`（及其运行时依赖）、`apache-arrow`、`@huggingface/jinja`、`@huggingface/tokenizers`、以及 `transformers→sharp` 的 `detect-libc` / `@img/colour` / `semver`、`lancedb` 的 `reflect-metadata`、`apache-arrow` 的 `tslib` / `flatbuffers`。unpacked 包无法再解析仍在 asar 内的依赖。
   - **预防**：`npm run check:asar-unpack`（静态对照 yml）纳入 `npm run verify`；`afterPack` 对真实 `app.asar.unpacked` 再跑一遍，缺口则构建失败。
   - **桌面端（utilityProcess 可用）**：worker 初始化失败 → **直接失败**（error 日志 + 知识库不可用状态），**禁止**再 load 进主进程。
   - **唯一例外**：CLI / shim 下 `utilityProcess.fork` 不可用时走进程内模式（无 UI、也无 worker 可选）——这不是「失败后降级」。
@@ -312,4 +319,4 @@ type MemoryVolatility = "stable" | "moderate" | "volatile"
 - **恢复后增量补差集**——读得开的备份换回去之后，只补和当前文档清单的差集，不全量重做向量
 - **孤儿 chunk 后台清理**——`initialize()` 后 `setImmediate` 定向删 chunk；残留 &lt; 50 跳过整表重建
 - **退出时 `disposeAsync`**——主进程 `cleanupAllServices` / SIGINT·SIGTERM 会 compact LanceDB 并停 worker
-- **嵌入推理**——`@huggingface/transformers` v4 + `device: auto`（macOS→WebGPU via `gpu`、Linux x64→`gpu`、Windows→`dml`；Windows 不可用 `gpu` 别名，因 ORT 禁止 webgpu+dml 同会话）；加速 EP 初始化失败（无 DX12 GPU、驱动不兼容等）自动回退 `cpu`；设置项 `embeddingDevice`
+- **嵌入推理**——`@huggingface/transformers` v4 + `device: auto`（macOS→WebGPU via `gpu`、Linux x64→`gpu`、Windows→`dml`；Windows 不可用 `gpu` 别名，因 ORT 禁止 webgpu+dml 同会话）；加速设备初始化失败（无 DX12 GPU、驱动不兼容等）自动回退 CPU；原生加速库在加载阶段就失败时，改用不依赖系统显卡的实现，仍在独立进程里跑；设置项 `embeddingDevice`

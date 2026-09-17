@@ -29,6 +29,7 @@ const WORKER_ENTRY_PACKAGES = [
   '@lancedb/lancedb',
   'apache-arrow', // @lancedb/lancedb 的 peerDependency，lancedb-worker 热路径必载
   'onnxruntime-node',
+  'onnxruntime-web',
   'sherpa-onnx-node',
   'pdfjs-dist',
   '@napi-rs/canvas',
@@ -40,7 +41,7 @@ const WORKER_ENTRY_PACKAGES = [
  * 新增放行前必须确认对应 worker 初始化仍成功。
  */
 const ALLOW_MISSING = new Set([
-  'onnxruntime-web', // transformers 浏览器回退；桌面用 onnxruntime-node
+  // onnxruntime-web 已列入 asarUnpack：原生 ORT 加载失败时 worker 要能解析它
   'command-line-args', // apache-arrow CLI
   'command-line-usage',
   '@swc/helpers', // apache-arrow 编译辅助，Node 入口未强制加载

@@ -39,6 +39,13 @@ asarUnpack:
   - node_modules/sherpa-onnx-win-*/**/*
   - node_modules/onnxruntime-node/**/*
   - "**/onnxruntime-node/**/*"
+  # 原生 ORT 加载失败时 worker 改走 WASM（Server / 无独显）
+  - node_modules/onnxruntime-web/**/*
+  - node_modules/guid-typescript/**/*
+  - node_modules/long/**/*
+  - node_modules/platform/**/*
+  - node_modules/protobufjs/**/*
+  - node_modules/@protobufjs/**/*
   # utilityProcess worker 用 ESM import，NODE_PATH 无效；传递依赖必须物理在 asar.unpacked
   # （unpacked 包无法再解析仍在 asar 内的依赖——经典 asarUnpack 缺口）
   - node_modules/onnxruntime-common/**/*

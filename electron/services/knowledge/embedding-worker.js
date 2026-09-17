@@ -4,6 +4,7 @@
  *
  * 使用 @huggingface/transformers v4 + onnxruntime-node（CoreML/CUDA/DML），
  * 在独立 utilityProcess 中跑推理，与主进程内存隔离。
+ * 原生 onnxruntime-node 加载失败时改走 onnxruntime-web（WASM）。
  *
  * 通信协议：
  *   ⇢ { id, type: 'initialize', data: { modelDir, modelName, device?, dtype? } }
@@ -13,19 +14,30 @@
  */
 'use strict'
 
+const { applyLocalWasmPaths, ensureOnnxRuntimeBackend } = require('./ort-native')
+
 let pipelineFn = null
 let env = null
 let extractor = null
 let currentModelKey = null
+/** @type {'native' | 'wasm' | null} */
+let ortBackend = null
 
 async function loadTransformers() {
-  if (pipelineFn) return { pipeline: pipelineFn, env }
+  if (pipelineFn) return { pipeline: pipelineFn, env, backend: ortBackend }
+  ortBackend = ensureOnnxRuntimeBackend()
+  if (ortBackend === 'wasm') {
+    console.warn('[EmbeddingWorker] onnxruntime-node 加载失败，改用 WASM')
+  }
   const transformers = await import('@huggingface/transformers')
   pipelineFn = transformers.pipeline
   env = transformers.env
   env.allowLocalModels = true
   env.allowRemoteModels = false
-  return { pipeline: pipelineFn, env }
+  if (ortBackend === 'wasm') {
+    applyLocalWasmPaths(env)
+  }
+  return { pipeline: pipelineFn, env, backend: ortBackend }
 }
 
 async function handleInitialize(data) {
@@ -34,11 +46,12 @@ async function handleInitialize(data) {
     throw new Error('initialize 缺少参数：需要 modelDir 与 modelName')
   }
 
-  const resolvedDevice = device || 'auto'
+  const t = await loadTransformers()
+  const resolvedDevice = t.backend === 'wasm' ? 'cpu' : (device || 'auto')
   const resolvedDtype = dtype || 'q8'
-  const key = `${modelDir}::${modelName}::${resolvedDevice}::${resolvedDtype}`
+  const key = `${modelDir}::${modelName}::${resolvedDevice}::${resolvedDtype}::${t.backend}`
   if (extractor && currentModelKey === key) {
-    return { already: true, device: resolvedDevice }
+    return { already: true, device: resolvedDevice, backend: t.backend }
   }
 
   if (extractor) {
@@ -49,7 +62,6 @@ async function handleInitialize(data) {
     currentModelKey = null
   }
 
-  const t = await loadTransformers()
   t.env.allowRemoteModels = false
   t.env.localModelPath = modelDir
 
@@ -60,7 +72,7 @@ async function handleInitialize(data) {
   })
   currentModelKey = key
 
-  return { loaded: true, modelName, device: resolvedDevice }
+  return { loaded: true, modelName, device: resolvedDevice, backend: t.backend }
 }
 
 async function handleEmbed(data) {

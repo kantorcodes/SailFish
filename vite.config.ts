@@ -153,17 +153,21 @@ function copyEmbeddingWorker() {
   return {
     name: 'copy-embedding-worker',
     closeBundle() {
-      const srcPath = resolve(__dirname, 'electron/services/knowledge/embedding-worker.js')
       const destDir = resolve(__dirname, 'dist-electron/services/knowledge')
-      const destPath = resolve(destDir, 'embedding-worker.js')
-
-      if (existsSync(srcPath)) {
-        if (!existsSync(destDir)) {
-          mkdirSync(destDir, { recursive: true })
-        }
-        copyFileSync(srcPath, destPath)
-        console.log('[copy-embedding-worker] Copied embedding-worker.js to dist-electron')
+      const files = ['embedding-worker.js', 'ort-native.js']
+      if (!existsSync(destDir)) {
+        mkdirSync(destDir, { recursive: true })
       }
+      const copied: string[] = []
+      for (const name of files) {
+        const srcPath = resolve(__dirname, 'electron/services/knowledge', name)
+        if (!existsSync(srcPath)) {
+          throw new Error(`[copy-embedding-worker] 缺少 ${srcPath}`)
+        }
+        copyFileSync(srcPath, resolve(destDir, name))
+        copied.push(name)
+      }
+      console.log(`[copy-embedding-worker] Copied ${copied.join(', ')} to dist-electron`)
     }
   }
 }
