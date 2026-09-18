@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, X } from 'lucide-vue-next'
 import { showConfirm, showAlert } from '../../composables/useConfirm'
 import { v4 as uuidv4 } from 'uuid'
+import { isMcpNetworkOutageKind, mcpConnectErrorText } from '../../utils/mcp-connect-error'
 
 const { t } = useI18n()
 
@@ -27,6 +28,7 @@ interface McpServerStatus {
   name: string
   connected: boolean
   error?: string
+  errorKind?: McpConnectErrorKind
   toolCount: number
   resourceCount: number
   promptCount: number
@@ -202,6 +204,14 @@ const isConnecting = (server: McpServerConfig) =>
 const failedCount = computed(() => servers.value.filter(isUnhealthy).length)
 const connectingCount = computed(() => servers.value.filter(isConnecting).length)
 
+const mcpErrorText = (status?: McpServerStatus) =>
+  mcpConnectErrorText(status, t, t('mcpSettings.connectionFailed'))
+
+const allFailedAreNetwork = computed(() => {
+  const failed = servers.value.filter(isUnhealthy)
+  return failed.length > 1 && failed.every(s => isMcpNetworkOutageKind(getServerStatus(s.id)?.errorKind))
+})
+
 // 加载服务器配置
 const loadServers = async () => {
   servers.value = await window.electronAPI.mcp.getServers()
@@ -354,7 +364,10 @@ const testConnection = async () => {
         message: t('mcpSettings.connectionSuccess', { tools: result.toolCount, resources: result.resourceCount, prompts: result.promptCount })
       }
     } else {
-      testResult.value = { success: false, message: result.error || t('mcpSettings.connectionFailed') }
+      testResult.value = {
+        success: false,
+        message: mcpConnectErrorText(result, t, t('mcpSettings.connectionFailed'))
+      }
     }
   } catch (error) {
     testResult.value = {
@@ -439,7 +452,11 @@ const generateWhenToUseDraft = async (
     } else {
       const test = await window.electronAPI.mcp.testConnection(JSON.parse(JSON.stringify(server)))
       if (!test.success) {
-        return { draft: '', toolsOk: false, error: test.error || t('mcpSettings.connectionFailed') }
+        return {
+          draft: '',
+          toolsOk: false,
+          error: mcpConnectErrorText(test, t, t('mcpSettings.connectionFailed'))
+        }
       }
       tools = test.tools || []
     }
@@ -751,7 +768,7 @@ onUnmounted(() => {
         <div class="header-left">
           <h4>{{ t('mcpSettings.title') }}</h4>
           <span class="connection-badge health-failed" v-if="failedCount > 0">
-            {{ t('mcpSettings.healthFailed', { count: failedCount }) }}
+            {{ allFailedAreNetwork ? t('mcp.healthNetworkDown') : t('mcpSettings.healthFailed', { count: failedCount }) }}
           </span>
           <span class="connection-badge health-connecting" v-else-if="connectingCount > 0">
             {{ t('mcpSettings.healthConnecting') }}
@@ -800,9 +817,9 @@ onUnmounted(() => {
             <div
               v-if="isUnhealthy(server)"
               class="server-health-error"
-              :title="getServerStatus(server.id)?.error || t('mcpSettings.connectionFailed')"
+              :title="mcpErrorText(getServerStatus(server.id))"
             >
-              {{ getServerStatus(server.id)?.error || t('mcpSettings.connectionFailed') }}
+              {{ mcpErrorText(getServerStatus(server.id)) }}
             </div>
             <div v-else-if="isConnecting(server)" class="server-connecting">
               {{ t('mcpSettings.connecting') }}

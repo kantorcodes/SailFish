@@ -241,6 +241,7 @@ export interface McpServerStatus {
   name: string
   connected: boolean
   error?: string
+  errorKind?: import('@shared/types').McpConnectErrorKind
   toolCount: number
   resourceCount: number
   promptCount: number
@@ -2091,6 +2092,7 @@ const electronAPI = {
         promptCount?: number
         tools?: Array<{ name: string; title?: string; description: string }>
         error?: string
+        errorKind?: import('@shared/types').McpConnectErrorKind
       }>,
 
     /** AI 生成 whenToUse 草稿（须用户确认后写入） */

@@ -2,6 +2,9 @@
  * MCP 服务器配置（前后端 / 工作台 descriptor 共用）
  */
 
+/** 连接失败里用户能感知的一类原因；界面按这类说话，不展示程序内部报错 */
+export type McpConnectErrorKind = 'network' | 'timeout' | 'dns' | 'refused'
+
 export interface McpServerConfig {
   id: string
   name: string

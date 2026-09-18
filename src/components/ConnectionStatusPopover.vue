@@ -10,6 +10,7 @@ import {
 } from '@shared/types/browser-bridge'
 import HoverTipOverlay from './HoverTipOverlay.vue'
 import { BUTTON_HOVER_TIP_DELAY_MS, useHoverTip } from '../composables/useHoverTip'
+import { isMcpNetworkOutageKind, mcpConnectErrorText } from '../utils/mcp-connect-error'
 
 const { t } = useI18n()
 const { hoverTip, showTip, hideTip } = useHoverTip({
@@ -34,6 +35,7 @@ interface McpServerStatus {
   name: string
   connected: boolean
   error?: string
+  errorKind?: McpConnectErrorKind
   toolCount: number
   resourceCount: number
   promptCount: number
@@ -83,6 +85,7 @@ const gatewayPort = ref(0)
 const mcpServers = ref<McpServerConfig[]>([])
 const mcpStatuses = ref<McpServerStatus[]>([])
 const mcpConnecting = ref<string | null>(null)
+const mcpConnectingAll = ref(false)
 
 // Browser Bridge
 const browserBridgeInstalled = ref(false)
@@ -105,6 +108,7 @@ const mcpEnabledCount = computed(() => mcpEnabledServers.value.length)
 
 const isMcpFailed = (server: McpServerConfig): boolean => {
   if (!server.enabled) return false
+  if (mcpConnecting.value === server.id || mcpConnectingAll.value) return false
   const st = getMcpStatus(server.id)
   return !!st && !st.connected && !!st.error
 }
@@ -114,6 +118,14 @@ const isMcpPending = (server: McpServerConfig): boolean =>
 
 const mcpFailedCount = computed(() => mcpEnabledServers.value.filter(isMcpFailed).length)
 const mcpPendingCount = computed(() => mcpEnabledServers.value.filter(isMcpPending).length)
+
+const mcpErrorText = (status?: McpServerStatus) =>
+  mcpConnectErrorText(status, t)
+
+const mcpNetworkOutage = computed(() => {
+  const failed = mcpEnabledServers.value.filter(isMcpFailed)
+  return failed.length > 1 && failed.every(s => isMcpNetworkOutageKind(getMcpStatus(s.id)?.errorKind))
+})
 
 const isWechatWaitingSession = (ch: IMChannelState) =>
   ch.platform === 'wechat' && ch.connected && !ch.hasContact
@@ -180,6 +192,7 @@ const statusTooltip = computed(() => {
 })
 
 const mcpHeaderText = computed(() => {
+  if (mcpNetworkOutage.value) return t('mcp.healthNetworkDown')
   if (mcpFailedCount.value > 0) return t('mcp.healthFailed', { count: mcpFailedCount.value })
   if (mcpPendingCount.value > 0) {
     return t('mcp.healthConnecting', {
@@ -355,6 +368,24 @@ const retryMcp = async (server: McpServerConfig) => {
     console.error('MCP retry error:', e)
   } finally {
     mcpConnecting.value = null
+    await loadMcpData()
+  }
+}
+
+const retryAllMcp = async () => {
+  const failed = mcpEnabledServers.value.filter(isMcpFailed)
+  if (failed.length === 0) return
+  mcpConnectingAll.value = true
+  try {
+    await Promise.all(failed.map(async (server) => {
+      try {
+        await window.electronAPI.mcp.connect(JSON.parse(JSON.stringify(server)))
+      } catch (e) {
+        console.error('MCP retry error:', e)
+      }
+    }))
+  } finally {
+    mcpConnectingAll.value = false
     await loadMcpData()
   }
 }
@@ -604,6 +635,15 @@ onUnmounted(() => {
                 class="col-count"
                 :class="mcpHeaderClass"
               >{{ mcpHeaderText }}</span>
+              <button
+                v-if="mcpFailedCount > 1 || mcpConnectingAll"
+                class="btn-sm btn-connect"
+                :disabled="mcpConnectingAll"
+                @click="retryAllMcp"
+              >
+                <span v-if="mcpConnectingAll" class="spinner"></span>
+                <span v-else>{{ t('mcp.retryAll') }}</span>
+              </button>
             </div>
             <div class="col-body">
               <div v-if="mcpServers.length === 0" class="empty-hint">
@@ -624,18 +664,18 @@ onUnmounted(() => {
                   <template v-else>{{ getMcpStatus(srv.id)?.connected ? '●' : '○' }}</template>
                 </span>
                 <div class="item-name-group">
-                  <span class="item-name">{{ srv.name }}</span>
+                  <span class="item-name" :title="srv.name">{{ srv.name }}</span>
                   <span v-if="getMcpStatus(srv.id)?.connected" class="item-detail">{{ getMcpStatus(srv.id)?.toolCount }} {{ t('mcp.tools') }}</span>
                   <span v-else-if="!srv.enabled" class="item-tag">{{ t('mcp.disabled') }}</span>
                   <span v-else-if="isMcpPending(srv)" class="item-connecting">{{ t('mcp.connecting') }}</span>
                   <span
-                    v-else-if="isMcpFailed(srv)"
+                    v-else-if="isMcpFailed(srv) && !mcpNetworkOutage"
                     class="item-detail item-error"
-                    :title="getMcpStatus(srv.id)?.error"
-                  >{{ getMcpStatus(srv.id)?.error }}</span>
+                    :title="mcpErrorText(getMcpStatus(srv.id))"
+                  >{{ mcpErrorText(getMcpStatus(srv.id)) }}</span>
                 </div>
-                <div class="item-actions" v-if="isMcpFailed(srv)">
-                  <button class="btn-sm btn-connect" :disabled="mcpConnecting === srv.id" @click="retryMcp(srv)">
+                <div class="item-actions" v-if="isMcpFailed(srv) && !mcpNetworkOutage">
+                  <button class="btn-sm btn-connect" :disabled="mcpConnecting === srv.id || mcpConnectingAll" @click="retryMcp(srv)">
                     <span v-if="mcpConnecting === srv.id" class="spinner"></span>
                     <span v-else>{{ t('mcp.retry') }}</span>
                   </button>
@@ -822,6 +862,15 @@ onUnmounted(() => {
 
 .item-error {
   color: var(--accent-red, #e74c3c);
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-header .btn-connect {
+  margin-left: auto;
 }
 
 .item-connecting {
@@ -890,7 +939,8 @@ onUnmounted(() => {
 }
 
 .item-name-group .item-name {
-  flex: unset;
+  flex: 1;
+  min-width: 0;
 }
 
 .item-detail {

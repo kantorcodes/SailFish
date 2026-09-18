@@ -11,6 +11,7 @@ import type { ToolDefinition } from './ai.service'
 import type { ToolDefinitionWithMeta } from './agent/tools'
 import { formatMcpToolCallContent, resolveMcpToolDisplayLabel } from './mcp-tool-display'
 import { toMcpSkillId, parseMcpSkillId } from './mcp-progressive-constants'
+import { classifyMcpConnectError, type McpConnectErrorKind } from './mcp-connect-error'
 import { ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { app } from 'electron'
@@ -85,6 +86,7 @@ export interface McpServerStatus {
   name: string
   connected: boolean
   error?: string
+  errorKind?: McpConnectErrorKind
   toolCount: number
   resourceCount: number
   promptCount: number
@@ -108,7 +110,7 @@ export class McpService extends EventEmitter {
   /** ensureConnected 进行中的 Promise，按 serverId 去重 */
   private connecting: Map<string, Promise<void>> = new Map()
   /** 最近一次连接失败（已连接成功或主动断开后清除） */
-  private lastErrors: Map<string, { name: string; error: string }> = new Map()
+  private lastErrors: Map<string, { name: string; error: string; errorKind?: McpConnectErrorKind }> = new Map()
 
   constructor() {
     super()
@@ -203,11 +205,17 @@ export class McpService extends EventEmitter {
       if (transport) {
         try { await transport.close() } catch { /* 连接失败时尽力关掉已拉起的 transport */ }
       }
-      const errorMsg = error instanceof Error ? error.message : '连接失败'
-      this.lastErrors.set(config.id, { name: config.name, error: errorMsg })
-      this.emit('error', { serverId: config.id, error: errorMsg })
+      const classified = classifyMcpConnectError(error)
+      this.lastErrors.set(config.id, {
+        name: config.name,
+        error: classified.message,
+        errorKind: classified.kind
+      })
+      this.emit('error', { serverId: config.id, error: classified.message })
       log.error(`Failed to connect to ${config.name}:`, error)
-      throw new Error(`连接 MCP 连接器 ${config.name} 失败: ${errorMsg}`)
+      const wrapped = new Error(`连接 MCP 连接器 ${config.name} 失败: ${classified.message}`)
+      ;(wrapped as Error & { cause?: unknown }).cause = error
+      throw wrapped
     }
   }
 
@@ -352,6 +360,7 @@ export class McpService extends EventEmitter {
         name: rec.name,
         connected: false,
         error: rec.error,
+        errorKind: rec.errorKind,
         toolCount: 0,
         resourceCount: 0,
         promptCount: 0
@@ -725,6 +734,7 @@ export class McpService extends EventEmitter {
     promptCount?: number
     tools?: Array<{ name: string; title?: string; description: string }>
     error?: string
+    errorKind?: McpConnectErrorKind
   }> {
     try {
       await this.connect(config)
@@ -752,9 +762,11 @@ export class McpService extends EventEmitter {
       
       return { success: false, error: '连接建立但无法获取信息' }
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : '测试连接失败'
+      const classified = classifyMcpConnectError(error)
+      return {
+        success: false,
+        error: classified.message,
+        errorKind: classified.kind
       }
     }
   }

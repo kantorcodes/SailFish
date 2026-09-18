@@ -58,6 +58,7 @@ interface UpdateStatusInfo {
 
 // MCP 相关类型（与 @shared/types 对齐，避免重复定义）
 type McpServerConfig = import('@shared/types').McpServerConfig
+type McpConnectErrorKind = import('@shared/types').McpConnectErrorKind
 
 interface McpTool {
   serverId: string
@@ -97,6 +98,7 @@ interface McpServerStatus {
   name: string
   connected: boolean
   error?: string
+  errorKind?: McpConnectErrorKind
   toolCount: number
   resourceCount: number
   promptCount: number
@@ -1338,6 +1340,7 @@ interface Window {
         promptCount?: number
         tools?: Array<{ name: string; title?: string; description: string }>
         error?: string
+        errorKind?: McpConnectErrorKind
       }>
       /** AI 生成 whenToUse 草稿（须用户确认后写入） */
       suggestWhenToUse: (input: {
