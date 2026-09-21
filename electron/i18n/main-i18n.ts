@@ -8,6 +8,7 @@ const translations = {
     // 窗口标题
     'window.fileManager': '文件管理器',
     'window.aiDebug': 'AI 调试控制台',
+    'window.llmBench': '压测控制台',
 
     // 文件对话框
     'dialog.selectXshellFile': '选择 Xshell 会话文件',
@@ -133,6 +134,7 @@ const translations = {
   'en-US': {
     'window.fileManager': 'File Manager',
     'window.aiDebug': 'AI Debug Console',
+    'window.llmBench': 'Benchmark Console',
 
     'dialog.selectXshellFile': 'Select Xshell Session File',
     'dialog.selectXshellDir': 'Select Xshell Sessions Folder',
@@ -265,7 +267,7 @@ export function updateLocale(locale: 'zh-CN' | 'en-US'): void {
   cachedLocale = locale
 }
 
-function getLocale(): 'zh-CN' | 'en-US' {
+export function getLocale(): 'zh-CN' | 'en-US' {
   if (configService) {
     const locale = configService.getLanguage()
     return locale === 'en-US' ? 'en-US' : 'zh-CN'

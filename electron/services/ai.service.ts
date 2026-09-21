@@ -524,6 +524,19 @@ export interface ChatWithToolsResult {
   imagesStripped?: boolean
 }
 
+/** 压测等需要「原样记失败」的调用：关掉自动重试/换模型，并可收紧输出。 */
+export interface ChatStreamOptions {
+  disableRetry?: boolean
+  disableFailover?: boolean
+  maxOutputTokens?: number
+  temperature?: number
+  /** 压测填充很长，调试流水只留头尾，避免把窗口和日志文件灌满 */
+  truncateDebugMessages?: boolean
+  onHttpStatus?: (status: number) => void
+  /** 压测「必须调工具」轴用；默认 auto */
+  toolChoice?: 'auto' | 'none' | 'required'
+}
+
 import type { AiModelType, AiProfile, FetchedAiModel } from '@shared/types'
 export type { AiModelType, AiProfile, FetchedAiModel }
 
@@ -534,6 +547,11 @@ function asPositiveInt(value: unknown): number | undefined {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
   if (!Number.isFinite(n) || n <= 0) return undefined
   return Math.floor(n)
+}
+
+function truncateBenchDebugContent(content: string | undefined): string | undefined {
+  if (!content || content.length <= 400) return content
+  return `${content.slice(0, 160)}\n...[${content.length} chars]...\n${content.slice(-80)}`
 }
 
 /** 厂商模型列表条目上可能出现的能力字段（只读结构化字段，不按模型名猜测） */
@@ -2205,6 +2223,7 @@ export class AiService {
     onRetry?: (retryInfo?: RetryInfo) => void,
     onToolCallReady?: (toolCall: ToolCall) => void,  // 流式中某个 tool_call 参数完整时回调
     onModelFailover?: (notice: AiModelFailoverNotice) => void,
+    streamOptions?: ChatStreamOptions,
   ): Promise<void> {
     let profile = this.getCurrentProfile(profileId)
     if (!profile) {
@@ -2235,7 +2254,9 @@ export class AiService {
       model: profile.model,
       messages: messages.map(m => ({
         role: m.role,
-        content: m.content,
+        content: streamOptions?.truncateDebugMessages
+          ? truncateBenchDebugContent(m.content)
+          : m.content,
         tool_call_id: m.tool_call_id,
         tool_calls: m.tool_calls,
         reasoning_content: m.reasoning_content,
@@ -2362,9 +2383,9 @@ export class AiService {
         model: profile.model,
         messages: fmtMsgs,
         tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? 'auto' : undefined,
-        temperature: resolveTemperature(profile),
-        max_tokens: resolveRequestBudget(profile).outputTokens,
+        tool_choice: tools.length > 0 ? (streamOptions?.toolChoice ?? 'auto') : undefined,
+        temperature: streamOptions?.temperature ?? resolveTemperature(profile),
+        max_tokens: streamOptions?.maxOutputTokens ?? resolveRequestBudget(profile).outputTokens,
         stream: true
       }
       if (!isAnthropic) {
@@ -2390,6 +2411,7 @@ export class AiService {
     }
 
     const tryModelFailover = (trigger: FailoverTrigger | null): boolean => {
+      if (streamOptions?.disableFailover) return false
       if (!trigger || settled || abortController.signal.aborted) return false
       if (!this.configService.get('autoFailoverModel')) return false
       const next = listFailoverCandidates(
@@ -2429,6 +2451,7 @@ export class AiService {
     const tryRetry = (error: NetworkErrorLike, doRequest: () => void): boolean => {
       // 已有重试在等待或请求已完成，跳过（防止 res/req 同时 emit error 导致重复重试）
       if (settled || isCompleted) return true
+      if (streamOptions?.disableRetry) return false
       if (retryCount < AI_RETRY.MAX_RETRIES && isRetryableError(error)) {
         retryCount++
         const delay = calculateBackoff(AI_RETRY.BASE_DELAY, retryCount - 1)
@@ -2498,6 +2521,7 @@ export class AiService {
 
       req = httpModule.request(options, (res) => {
         if (isStale()) return
+        if (res.statusCode) streamOptions?.onHttpStatus?.(res.statusCode)
         // 开始接收响应，启动空闲超时
         resetIdleTimeout()
 
@@ -2524,6 +2548,7 @@ export class AiService {
             log.error(`Request HTTP error: model=${profile.model}, status=${res.statusCode}, duration=${elapsed}s, error=${parsed.message.slice(0, 200)}`)
             if (
               res.statusCode === 429
+              && !streamOptions?.disableRetry
               && !isAccountBillingError(parsed.code, res.statusCode)
               && !isNoRetryBusinessCode(parsed.code)
               && rateLimitRetryCount < AI_RETRY.RATE_LIMIT_MAX_RETRIES
@@ -2559,7 +2584,7 @@ export class AiService {
                 return
               }
               complete(() => onError(t('error.context_length_exceeded')))
-            } else if (res.statusCode && AI_RETRY.RETRYABLE_STATUS_CODES.includes(res.statusCode) && serverErrorRetryCount < AI_RETRY.SERVER_ERROR_MAX_RETRIES) {
+            } else if (res.statusCode && !streamOptions?.disableRetry && AI_RETRY.RETRYABLE_STATUS_CODES.includes(res.statusCode) && serverErrorRetryCount < AI_RETRY.SERVER_ERROR_MAX_RETRIES) {
               serverErrorRetryCount++
               const delay = calculateBackoff(AI_RETRY.SERVER_ERROR_BASE_DELAY, serverErrorRetryCount - 1)
               const delaySec = (delay / 1000).toFixed(0)

@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>压测控制台</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --bg2: #161b22;
+        --bg3: #21262d;
+        --border: #30363d;
+        --text: #c9d1d9;
+        --muted: #8b949e;
+        --blue: #58a6ff;
+        --green: #3fb950;
+        --red: #f85149;
+        --yellow: #d29922;
+        --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+        --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: var(--sans);
+        font-size: 13px;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 10px 16px;
+        background: var(--bg2);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        -webkit-app-region: drag;
+      }
+      header h1 { font-size: 15px; font-weight: 600; }
+      .meta { color: var(--muted); font-size: 11px; -webkit-app-region: no-drag; }
+      .controls {
+        padding: 12px 16px;
+        background: var(--bg2);
+        border-bottom: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: 1fr 1fr auto auto;
+        gap: 10px 12px;
+        align-items: end;
+      }
+      label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 11px; }
+      select, input, button {
+        font-family: inherit;
+        font-size: 12px;
+        background: var(--bg3);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      button { cursor: pointer; }
+      button:hover { border-color: #484f58; }
+      button.primary { background: #1f6feb; border-color: #1f6feb; color: white; }
+      button.danger { color: var(--red); border-color: var(--red); background: rgba(248, 81, 73, 0.12); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .hint { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.5; }
+      main { flex: 1; overflow: auto; padding: 12px 16px 24px; }
+      h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; }
+      h2:first-child { margin-top: 0; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+      th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+      th { color: var(--muted); font-size: 11px; font-weight: 500; }
+      td.ok { color: var(--green); }
+      td.err { color: var(--red); }
+      td.skip { color: var(--yellow); }
+      .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+      .score {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px 18px 14px;
+        margin-bottom: 8px;
+      }
+      .score-total { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; color: var(--blue); }
+      .score-label { color: var(--muted); font-size: 11px; margin: 4px 0 10px; }
+      .score-parts { color: var(--text); font-size: 12px; line-height: 1.6; }
+      .actions { display: flex; gap: 8px; padding: 10px 16px 16px; }
+      .toast {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        padding: 8px 16px; background: var(--bg3); border: 1px solid var(--border);
+        border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none;
+      }
+      .toast.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="title">压测控制台</h1>
+      <span class="meta" id="suite">sailfish-bench-v3</span>
+    </header>
+    <section class="controls">
+      <label>
+        <span id="lblProfile">模型</span>
+        <select id="profile"></select>
+      </label>
+      <label>
+        <span id="lblRungs">要测的字数（不填用默认）</span>
+        <input id="rungs" placeholder="4000, 16000, 32000, 64000, 128000" />
+      </label>
+      <button class="primary" id="startBtn">开始</button>
+      <button class="danger" id="stopBtn" disabled>停止</button>
+      <div class="hint" id="hint"></div>
+    </section>
+    <main>
+      <div class="empty" id="empty"></div>
+      <div id="results" hidden></div>
+    </main>
+    <div class="actions">
+      <button id="copyBtn" disabled>复制报告</button>
+      <button id="saveBtn" disabled>保存报告</button>
+    </div>
+    <div class="toast" id="toast"></div>
+    <script>
+      const I18N = {
+        'zh-CN': {
+          title: '压测控制台',
+          profile: '模型',
+          rungs: '要测的字数（不填用默认）',
+          start: '开始',
+          stop: '停止',
+          hint: '同一套冻住的中文题，一次打完四块。跑完给一个压测分，同一版本下分高就更快更好。跳过和失败按零。',
+          empty: '选一套模型，点开始。跑完看压测分，再对四块表。',
+          copy: '复制报告',
+          save: '保存报告',
+          copied: '已复制',
+          saved: '已保存',
+          noProfile: '请先在设置里配一套模型',
+          context: '上下文长短',
+          output: '输出速度',
+          tools: '工具往返',
+          concurrency: '三路并发',
+          scoreLabel: '压测分 · {v}',
+          scoreParts: '上下文 {c} · 输出 {o} · 工具 {t} · 并发 {p}',
+          colChars: '字数',
+          colIn: '接口输入',
+          colStatus: '结果',
+          colTtft: '首字',
+          colTotal: '整轮',
+          colSpeed: '每秒字',
+          colOut: '写出',
+          colNote: '备注',
+          colLane: '路',
+          colStep: '段',
+          runningContext: '正在打 {n} 字…',
+          runningOutput: '正在打输出速度…',
+          runningTools: '正在打工具往返…',
+          runningConcurrency: '正在打三路并发…',
+          skipped: '超过窗口，跳过',
+          aborted: '已停止',
+          rateLimited: '限流',
+          truncated: '输出被截断',
+          streamCut: '流被掐断',
+          emptyOutput: '没有写出字',
+          noTool: '没有吐出工具调用',
+          toolCall: '叫工具',
+          toolAfter: '收回来',
+        },
+        'en-US': {
+          title: 'Benchmark Console',
+          profile: 'Model',
+          rungs: 'Character counts (leave empty for defaults)',
+          start: 'Start',
+          stop: 'Stop',
+          hint: 'Same frozen Chinese suite. One run, then an index score — higher is better on the same suite version. Skips and failures count as zero.',
+          empty: 'Pick a model and start. Read the index first, then the four tables.',
+          copy: 'Copy report',
+          save: 'Save report',
+          copied: 'Copied',
+          saved: 'Saved',
+          noProfile: 'Add a model profile in Settings first',
+          context: 'Context length',
+          output: 'Output speed',
+          tools: 'Tool round-trip',
+          concurrency: '3-way concurrency',
+          scoreLabel: 'Index · {v}',
+          scoreParts: 'Context {c} · Output {o} · Tools {t} · Concurrency {p}',
+          colChars: 'Chars',
+          colIn: 'Prompt tokens',
+          colStatus: 'Result',
+          colTtft: 'TTFT',
+          colTotal: 'Total',
+          colSpeed: 'Chars/s',
+          colOut: 'Wrote',
+          colNote: 'Note',
+          colLane: 'Lane',
+          colStep: 'Step',
+          runningContext: 'Running {n} chars…',
+          runningOutput: 'Running output…',
+          runningTools: 'Running tools…',
+          runningConcurrency: 'Running concurrency…',
+          skipped: 'Skipped (over window)',
+          aborted: 'Stopped',
+          rateLimited: 'Rate limited',
+          truncated: 'Truncated',
+          streamCut: 'Stream cut',
+          emptyOutput: 'Empty output',
+          noTool: 'No tool call',
+          toolCall: 'Call',
+          toolAfter: 'After',
+        }
+      }
+
+      function escapeHtml(text) {
+        return String(text ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+      }
+
+      const api = window.electronAPI
+      let t = I18N['zh-CN']
+      let report = null
+      let running = false
+
+      function toast(msg) {
+        const el = document.getElementById('toast')
+        el.textContent = msg
+        el.classList.add('show')
+        setTimeout(() => el.classList.remove('show'), 1800)
+      }
+
+      function applyI18n() {
+        document.title = t.title
+        document.getElementById('title').textContent = t.title
+        document.getElementById('lblProfile').textContent = t.profile
+        document.getElementById('lblRungs').textContent = t.rungs
+        document.getElementById('startBtn').textContent = t.start
+        document.getElementById('stopBtn').textContent = t.stop
+        document.getElementById('hint').textContent = t.hint
+        document.getElementById('empty').textContent = t.empty
+        document.getElementById('copyBtn').textContent = t.copy
+        document.getElementById('saveBtn').textContent = t.save
+      }
+
+      function parseRungs(raw) {
+        const text = (raw || '').trim()
+        if (!text) return undefined
+        return text.split(/[,，\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0)
+      }
+
+      function fmtMs(ms) {
+        if (ms == null) return '—'
+        return ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : Math.round(ms) + 'ms'
+      }
+
+      function allItems(rep) {
+        if (!rep) return []
+        const items = [...(rep.rungs || [])]
+        if (rep.output) items.push(rep.output)
+        if (rep.tools) items.push(rep.tools.call, rep.tools.after)
+        if (rep.concurrency) items.push(...rep.concurrency.lanes)
+        return items
+      }
+
+      function statusLabel(rung, section) {
+        if (rung.status === 'running') {
+          if (section === 'output') return t.runningOutput
+          if (section === 'tools') return t.runningTools
+          if (section === 'concurrency') return t.runningConcurrency
+          return t.runningContext.replace('{n}', String(rung.targetChars))
+        }
+        if (rung.status === 'ok') return 'ok'
+        if (rung.status === 'skipped') return t.skipped
+        if (rung.status === 'aborted') return t.aborted
+        if (rung.rateLimited) return t.rateLimited
+        if (rung.error === 'empty_output') return t.emptyOutput
+        if (rung.error === 'no_tool_call') return t.noTool
+        if (rung.truncated) return t.truncated
+        if (rung.error === 'stream_cut') return t.streamCut
+        return rung.error || 'error'
+      }
+
+      function statusClass(rung) {
+        if (rung.status === 'ok') return 'ok'
+        if (rung.status === 'skipped' || rung.status === 'aborted') return 'skip'
+        if (rung.status === 'error') return 'err'
+        return ''
+      }
+
+      function note(rung) {
+        const bits = []
+        if (rung.toolName) bits.push(rung.toolName)
+        if (rung.finishReason) bits.push(rung.finishReason)
+        if (rung.httpStatus) bits.push('HTTP ' + rung.httpStatus)
+        if (rung.skipReason) bits.push(rung.skipReason)
+        return bits.join(' · ') || '—'
+      }
+
+      function table(headers, rows) {
+        return `<table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`
+      }
+
+      function row(cells, cls) {
+        return `<tr>${cells.map((c, i) => `<td${i === 2 ? ` class="${cls}"` : ''}>${c}</td>`).join('')}</tr>`
+      }
+
+      function render(next) {
+        report = next
+        const empty = document.getElementById('empty')
+        const results = document.getElementById('results')
+        const items = allItems(report)
+        if (!report || items.length === 0) {
+          empty.hidden = false
+          results.hidden = true
+          return
+        }
+        empty.hidden = true
+        results.hidden = false
+
+        const contextRows = (report.rungs || []).map(r => row([
+          escapeHtml(r.targetChars) + ' 字',
+          escapeHtml(r.actualPromptTokens ?? r.estimatedTokens ?? '—'),
+          escapeHtml(statusLabel(r, 'context')),
+          escapeHtml(fmtMs(r.ttftMs)),
+          escapeHtml(fmtMs(r.totalMs)),
+          escapeHtml(note(r)),
+        ], statusClass(r))).join('')
+
+        const out = report.output
+        const outputRows = out ? row([
+          escapeHtml(out.targetChars) + ' 字',
+          escapeHtml(out.actualPromptTokens ?? out.estimatedTokens ?? '—'),
+          escapeHtml(statusLabel(out, 'output')),
+          escapeHtml(fmtMs(out.ttftMs)),
+          escapeHtml(out.outputChars != null ? out.outputChars : '—'),
+          escapeHtml(out.outputCharsPerSec != null ? out.outputCharsPerSec : '—'),
+          escapeHtml(note(out)),
+        ], statusClass(out)) : ''
+
+        const toolRows = report.tools ? [
+          row([
+            t.toolCall,
+            escapeHtml(report.tools.call.actualPromptTokens ?? report.tools.call.estimatedTokens ?? '—'),
+            escapeHtml(statusLabel(report.tools.call, 'tools')),
+            escapeHtml(fmtMs(report.tools.call.ttftMs)),
+            escapeHtml(fmtMs(report.tools.call.totalMs)),
+            escapeHtml(note(report.tools.call)),
+          ], statusClass(report.tools.call)),
+          row([
+            t.toolAfter,
+            escapeHtml(report.tools.after.actualPromptTokens ?? report.tools.after.estimatedTokens ?? '—'),
+            escapeHtml(statusLabel(report.tools.after, 'tools')),
+            escapeHtml(fmtMs(report.tools.after.ttftMs)),
+            escapeHtml(fmtMs(report.tools.after.totalMs)),
+            escapeHtml(note(report.tools.after)),
+          ], statusClass(report.tools.after)),
+        ].join('') : ''
+
+        const concRows = (report.concurrency?.lanes || []).map((r, i) => row([
+          String(i + 1),
+          escapeHtml(r.actualPromptTokens ?? r.estimatedTokens ?? '—'),
+          escapeHtml(statusLabel(r, 'concurrency')),
+          escapeHtml(fmtMs(r.ttftMs)),
+          escapeHtml(fmtMs(r.totalMs)),
+          escapeHtml(note(r)),
+        ], statusClass(r))).join('')
+
+        const scoreCard = report.finishedAt && report.score
+          ? `<div class="score">
+              <div class="score-total">${escapeHtml(report.score.total)}</div>
+              <div class="score-label">${escapeHtml(t.scoreLabel.replace('{v}', report.suiteVersion || ''))}</div>
+              <div class="score-parts">${escapeHtml(t.scoreParts
+                .replace('{c}', String(report.score.context))
+                .replace('{o}', String(report.score.output))
+                .replace('{t}', String(report.score.tools))
+                .replace('{p}', String(report.score.concurrency)))}</div>
+            </div>`
+          : ''
+
+        results.innerHTML = [
+          scoreCard,
+          `<h2>${escapeHtml(t.context)}</h2>`,
+          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], contextRows),
+          `<h2>${escapeHtml(t.output)}</h2>`,
+          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colOut, t.colSpeed, t.colNote], outputRows),
+          `<h2>${escapeHtml(t.tools)}</h2>`,
+          table([t.colStep, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], toolRows),
+          `<h2>${escapeHtml(t.concurrency)}</h2>`,
+          table([t.colLane, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], concRows),
+        ].join('')
+
+        const hasDone = items.some(r => r.status !== 'pending' && r.status !== 'running')
+        document.getElementById('copyBtn').disabled = !hasDone
+        document.getElementById('saveBtn').disabled = !hasDone
+      }
+
+      function setRunning(on) {
+        running = on
+        document.getElementById('startBtn').disabled = on
+        document.getElementById('stopBtn').disabled = !on
+        document.getElementById('profile').disabled = on
+        document.getElementById('rungs').disabled = on
+      }
+
+      async function init() {
+        const locale = await api.llmBenchGetLocale()
+        t = I18N[locale] || I18N['zh-CN']
+        applyI18n()
+
+        const profiles = await api.llmBenchListProfiles()
+        const active = await api.llmBenchGetActiveProfileId()
+        const sel = document.getElementById('profile')
+        if (!profiles.length) {
+          sel.innerHTML = `<option value="">${t.noProfile}</option>`
+          document.getElementById('startBtn').disabled = true
+        } else {
+          sel.innerHTML = profiles.map(p => {
+            const label = `${p.name || p.model} · ${p.model}`
+            const selected = p.id === active ? ' selected' : ''
+            return `<option value="${escapeHtml(p.id)}"${selected}>${escapeHtml(label)}</option>`
+          }).join('')
+        }
+
+        const existing = await api.llmBenchGetReport()
+        if (existing) render(existing)
+        setRunning(await api.llmBenchIsRunning())
+
+        api.onLlmBenchProgress((progress) => {
+          if (progress && progress.report) render(progress.report)
+          const items = allItems(progress?.report)
+          const still = progress?.report?.finishedAt == null
+            && items.some(r => r.status === 'running' || r.status === 'pending')
+          if (progress?.report?.finishedAt) setRunning(false)
+          else if (still) setRunning(true)
+        })
+      }
+
+      document.getElementById('startBtn').addEventListener('click', async () => {
+        const profileId = document.getElementById('profile').value
+        if (!profileId) return toast(t.noProfile)
+        const rungs = parseRungs(document.getElementById('rungs').value)
+        setRunning(true)
+        const result = await api.llmBenchStart({ profileId, rungs })
+        if (!result?.ok) {
+          setRunning(false)
+          toast(result?.error || 'error')
+        }
+      })
+
+      document.getElementById('stopBtn').addEventListener('click', () => {
+        api.llmBenchStop()
+      })
+
+      document.getElementById('copyBtn').addEventListener('click', async () => {
+        if (!report) return
+        await api.llmBenchWriteClipboard(JSON.stringify(report, null, 2))
+        toast(t.copied)
+      })
+
+      document.getElementById('saveBtn').addEventListener('click', async () => {
+        const result = await api.llmBenchSaveReport()
+        if (result?.saved) toast(t.saved)
+      })
+
+      init()
+    </script>
+  </body>
+</html>

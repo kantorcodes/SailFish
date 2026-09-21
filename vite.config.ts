@@ -432,7 +432,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         'file-manager': resolve(__dirname, 'file-manager.html'),
-        'ai-debug': resolve(__dirname, 'ai-debug.html')
+        'ai-debug': resolve(__dirname, 'ai-debug.html'),
+        'llm-bench': resolve(__dirname, 'llm-bench.html')
       }
     }
   },

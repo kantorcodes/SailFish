@@ -405,6 +405,7 @@ import { menuService } from './services/menu.service'
 import { t, errMsg, setConfigService as setMainI18nConfig, updateLocale as updateMainI18nLocale } from './i18n/main-i18n'
 import { attentionService } from './services/attention.service'
 import { getAiDebugService } from './services/ai-debug.service'
+import { getLlmBenchService } from './services/llm-bench'
 import type { CreateTaskParams } from './services/scheduler.service'
 import { getSchedulerStore } from './services/scheduler.store'
 import type { SensorService } from './services/sensor'
@@ -624,6 +625,7 @@ function attachUiZoom(win: BrowserWindow): void {
 }
 
 const aiService = new AiService(configService)
+getLlmBenchService().setDependencies({ ai: aiService, config: configService })
 // 指定 AI 配置失效并回退时，通知所有窗口弹 toast（Agent 步骤流另有订阅）
 aiService.onProfileFallback((notice) => {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -1174,6 +1176,10 @@ function setupWindowServices() {
       aiDebugWindow.close()
       return true
     }
+    if (llmBenchWindow && !llmBenchWindow.isDestroyed()) {
+      llmBenchWindow.close()
+      return true
+    }
     return false
   })
   if (process.platform === 'darwin') {
@@ -1610,6 +1616,63 @@ function createAiDebugWindow(): void {
   aiDebugWindow.on('closed', () => {
     aiDebugWindow = null
     getAiDebugService().setDebugWindow(null)
+  })
+}
+
+let llmBenchWindow: BrowserWindow | null = null
+
+function createLlmBenchWindow(): void {
+  if (llmBenchWindow && !llmBenchWindow.isDestroyed()) {
+    llmBenchWindow.focus()
+    return
+  }
+
+  const iconPath = process.platform === 'darwin'
+    ? join(__dirname, '../resources/icon.icns')
+    : process.platform === 'win32'
+      ? join(__dirname, '../resources/icon.ico')
+      : join(__dirname, '../resources/icon.png')
+
+  llmBenchWindow = new BrowserWindow({
+    width: 920,
+    height: 720,
+    minWidth: 640,
+    minHeight: 420,
+    title: t('window.llmBench'),
+    icon: iconPath,
+    frame: true,
+    show: false,
+    backgroundColor: '#0d1117',
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      zoomFactor: readUiZoomFactor()
+    }
+  })
+  attachUiZoom(llmBenchWindow)
+
+  llmBenchWindow.once('ready-to-show', () => {
+    llmBenchWindow?.show()
+  })
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    llmBenchWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}llm-bench.html`)
+  } else {
+    llmBenchWindow.loadFile(join(__dirname, '../dist/llm-bench.html'))
+  }
+
+  getLlmBenchService().setWindow(llmBenchWindow)
+
+  llmBenchWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  llmBenchWindow.on('closed', () => {
+    llmBenchWindow = null
+    getLlmBenchService().setWindow(null)
   })
 }
 
@@ -3393,6 +3456,11 @@ ipcMain.handle('aiDebug:closeWindow', async () => {
     return { closed: true }
   }
   return { closed: false }
+})
+
+try { ipcMain.removeHandler('llmBench:openWindow') } catch { /* ignore */ }
+ipcMain.handle('llmBench:openWindow', async () => {
+  createLlmBenchWindow()
 })
 
 // 注意: aiDebug:isWindowOpen 已在 ai-debug.service.ts 中注册，这里不重复注册

@@ -2162,6 +2162,18 @@ interface Window {
       updateSettings: (settings: import('@shared/types').WebSearchSettings) => Promise<void>
     }
 
+    llmBenchOpenWindow: () => Promise<void>
+    llmBenchListProfiles: () => Promise<Array<{ id: string; name: string; model: string; apiUrl: string; contextLength?: number }>>
+    llmBenchGetActiveProfileId: () => Promise<string>
+    llmBenchGetLocale: () => Promise<'zh-CN' | 'en-US'>
+    llmBenchStart: (input: { profileId: string; rungs?: number[] }) => Promise<{ ok: boolean; error?: string }>
+    llmBenchStop: () => Promise<boolean>
+    llmBenchIsRunning: () => Promise<boolean>
+    llmBenchGetReport: () => Promise<unknown>
+    llmBenchSaveReport: () => Promise<{ saved: boolean; filePath?: string }>
+    llmBenchWriteClipboard: (text: string) => Promise<boolean>
+    onLlmBenchProgress: (callback: (progress: unknown) => void) => () => void
+
     // AI Debug 调试窗口
     aiDebugOpenWindow: () => Promise<void>
     aiDebugCloseWindow: () => Promise<{ closed: boolean }>

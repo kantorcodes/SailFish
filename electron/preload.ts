@@ -3575,6 +3575,22 @@ const electronAPI = {
   },
 
   // AI Debug 调试窗口
+  llmBenchOpenWindow: () => ipcRenderer.invoke('llmBench:openWindow'),
+  llmBenchListProfiles: () => ipcRenderer.invoke('llmBench:listProfiles'),
+  llmBenchGetActiveProfileId: () => ipcRenderer.invoke('llmBench:getActiveProfileId'),
+  llmBenchGetLocale: () => ipcRenderer.invoke('llmBench:getLocale'),
+  llmBenchStart: (input: { profileId: string; rungs?: number[] }) => ipcRenderer.invoke('llmBench:start', input),
+  llmBenchStop: () => ipcRenderer.invoke('llmBench:stop'),
+  llmBenchIsRunning: () => ipcRenderer.invoke('llmBench:isRunning'),
+  llmBenchGetReport: () => ipcRenderer.invoke('llmBench:getReport'),
+  llmBenchSaveReport: () => ipcRenderer.invoke('llmBench:saveReport'),
+  llmBenchWriteClipboard: (text: string) => ipcRenderer.invoke('llmBench:writeClipboard', text),
+  onLlmBenchProgress: (callback: (progress: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: unknown) => callback(progress)
+    ipcRenderer.on('llmBench:progress', handler)
+    return () => ipcRenderer.removeListener('llmBench:progress', handler)
+  },
+
   aiDebugOpenWindow: () => ipcRenderer.invoke('aiDebug:openWindow'),
   aiDebugCloseWindow: () => ipcRenderer.invoke('aiDebug:closeWindow') as Promise<{ closed: boolean }>,
   aiDebugIsWindowOpen: () => ipcRenderer.invoke('aiDebug:isWindowOpen') as Promise<boolean>,

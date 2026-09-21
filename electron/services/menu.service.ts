@@ -66,6 +66,7 @@ const menuI18n = {
     toggleAiPanel: '收起 / 展开侧边栏',
     toggleKnowledge: '记忆与知识库',
     aiDebugConsole: 'AI 调试控制台',
+    llmBenchConsole: '压测控制台',
     zoomIn: '放大',
     zoomOut: '缩小',
     resetZoom: '实际大小',
@@ -152,6 +153,7 @@ const menuI18n = {
     toggleAiPanel: 'Collapse / Expand Sidebar',
     toggleKnowledge: 'Memory & Knowledge',
     aiDebugConsole: 'AI Debug Console',
+    llmBenchConsole: 'Benchmark Console',
     zoomIn: 'Zoom In',
     zoomOut: 'Zoom Out',
     resetZoom: 'Actual Size',
@@ -534,6 +536,10 @@ export class MenuService {
           label: this.t('aiDebugConsole'),
           accelerator: this.shortcuts.aiDebugConsole || undefined,
           click: () => this.sendCommand('openAiDebugConsole')
+        },
+        {
+          label: this.t('llmBenchConsole'),
+          click: () => this.sendCommand('openLlmBenchConsole')
         },
       ] as MenuItemConstructorOptions[] : []),
       { type: 'separator' },

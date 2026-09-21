@@ -1574,6 +1574,9 @@ const handleMenuCommand = async (command: string) => {
     case 'openAiDebugConsole':
       if (!isSteamBuild) window.electronAPI.aiDebugOpenWindow()
       break
+    case 'openLlmBenchConsole':
+      if (!isSteamBuild) window.electronAPI.llmBenchOpenWindow()
+      break
   }
 }
 
