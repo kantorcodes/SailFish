@@ -29,8 +29,7 @@ describe('llm-bench score', () => {
 
   it('一项为零则总分为零', () => {
     const score = scoreBenchReport({
-      rungs: [okRung()],
-      output: { ...okRung(), outputChars: 80, outputCharsPerSec: 80 },
+      rungs: [okRung({ outputChars: 80, outputCharsPerSec: 80 })],
       tools: {
         call: { ...okRung(), calledTool: false, status: 'error', success: false, error: 'no_tool_call' },
         after: { ...okRung(), status: 'skipped', success: false },
@@ -47,14 +46,12 @@ describe('llm-bench score', () => {
       after: { ...okRung(), totalMs: 200 },
     }
     const slower = scoreBenchReport({
-      rungs: [okRung({ totalMs: 800 })],
-      output: { ...okRung(), outputChars: 40, outputCharsPerSec: 20, totalMs: 2000 },
+      rungs: [okRung({ totalMs: 800, outputChars: 40, outputCharsPerSec: 20 })],
       tools: { call: { ...toolsOk.call, totalMs: 800 }, after: { ...toolsOk.after, totalMs: 800 } },
       concurrency: { lanes: [okRung({ totalMs: 800 }), okRung({ totalMs: 800 }), okRung({ totalMs: 800 })], okCount: 3, rateLimitedCount: 0 },
     })
     const faster = scoreBenchReport({
-      rungs: [okRung({ totalMs: 200 })],
-      output: { ...okRung(), outputChars: 80, outputCharsPerSec: 80, totalMs: 1000 },
+      rungs: [okRung({ totalMs: 200, outputChars: 80, outputCharsPerSec: 80 })],
       tools: toolsOk,
       concurrency: { lanes: [okRung({ totalMs: 200 }), okRung({ totalMs: 200 }), okRung({ totalMs: 200 })], okCount: 3, rateLimitedCount: 0 },
     })
@@ -63,7 +60,7 @@ describe('llm-bench score', () => {
     expect(faster.output).toBeGreaterThan(0)
     expect(faster.tools).toBeGreaterThan(0)
     expect(faster.concurrency).toBeGreaterThan(0)
-    expect(scoreOutput({ ...okRung(), outputChars: 0, outputCharsPerSec: 0, status: 'error', success: false })).toBe(0)
+    expect(scoreOutput([{ ...okRung(), outputChars: 0, outputCharsPerSec: 0, status: 'error', success: false }])).toBe(0)
     expect(scoreTools(undefined)).toBe(0)
   })
 })

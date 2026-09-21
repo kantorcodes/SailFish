@@ -141,7 +141,7 @@ export class LlmBenchRunner {
     }
 
     const ladder = resolveBenchLadder(profile, input.rungs)
-    const probe = buildBenchRequest(BENCH_PROBE_CHARS, 'context')
+    const probe = buildBenchRequest(BENCH_PROBE_CHARS, 'concurrency')
     const skipProbe = probe.estimatedTokens > ladder.inputLimit
 
     const report: BenchReport = {
@@ -157,9 +157,6 @@ export class LlmBenchRunner {
         }
         return emptyRung(item.targetChars, item.estimatedTokens)
       }),
-      output: skipProbe
-        ? { ...skippedRung(BENCH_PROBE_CHARS, probe.estimatedTokens), outputChars: 0 }
-        : { ...emptyRung(BENCH_PROBE_CHARS, 0), outputChars: 0 },
       tools: {
         call: { ...(skipProbe ? skippedRung(BENCH_PROBE_CHARS, probe.estimatedTokens) : emptyRung(BENCH_PROBE_CHARS, 0)), calledTool: false },
         after: skipProbe ? skippedRung(BENCH_PROBE_CHARS, probe.estimatedTokens) : emptyRung(BENCH_PROBE_CHARS, 0),
@@ -185,9 +182,8 @@ export class LlmBenchRunner {
           this.emit(report, 'context', rung.targetChars)
           continue
         }
-        await this.runShort(profile.id, rung, report, 'context')
+        await this.runContext(profile.id, rung, report)
       }
-      if (!this.aborted) await this.runOutput(profile.id, report)
       if (!this.aborted) await this.runTools(profile.id, report)
       if (!this.aborted) await this.runConcurrency(profile.id, report)
       if (this.aborted) this.abortRemaining(report)
@@ -214,7 +210,6 @@ export class LlmBenchRunner {
 
   private abortRemaining(report: BenchReport): void {
     for (const rung of report.rungs) this.markAborted(rung)
-    if (report.output) this.markAborted(report.output)
     if (report.tools) {
       this.markAborted(report.tools.call)
       this.markAborted(report.tools.after)
@@ -335,6 +330,43 @@ export class LlmBenchRunner {
     if (!rung.success && rung.truncated) rung.error = 'truncated'
   }
 
+  private applyWriteSpeed(rung: BenchRungResult, outcome: StreamOutcome): void {
+    rung.outputChars = outcome.outputChars
+    const genMs = Math.max(1, outcome.totalMs - (outcome.ttftMs ?? 0))
+    rung.outputCharsPerSec = outcome.outputChars > 0
+      ? Math.round((outcome.outputChars / genMs) * 1000)
+      : 0
+  }
+
+  private async runContext(
+    profileId: string,
+    rung: BenchRungResult,
+    report: BenchReport,
+  ): Promise<void> {
+    const built = buildBenchRequest(rung.targetChars, 'context')
+    rung.estimatedTokens = built.estimatedTokens
+    rung.actualChars = built.charCount
+    rung.status = 'running'
+    this.emit(report, 'context', rung.targetChars)
+    const outcome = await this.streamOnce({
+      profileId,
+      messages: built.messages,
+      tools: built.tools,
+      maxOutputTokens: BENCH_OUTPUT_MAX_TOKENS,
+      toolChoice: 'none',
+    })
+    this.applyWriteSpeed(rung, outcome)
+    if (!this.applyOutcome(rung, outcome)) {
+      this.emit(report, 'context', rung.targetChars)
+      return
+    }
+    rung.success = !rung.truncated && outcome.outputChars > 0
+    rung.status = rung.success ? 'ok' : 'error'
+    if (rung.truncated) rung.error = 'truncated'
+    else if (outcome.outputChars <= 0) rung.error = 'empty_output'
+    this.emit(report, 'context', rung.targetChars)
+  }
+
   private async runShort(
     profileId: string,
     rung: BenchRungResult,
@@ -355,37 +387,6 @@ export class LlmBenchRunner {
     })
     this.finishShort(rung, outcome)
     this.emit(report, section, rung.targetChars)
-  }
-
-  private async runOutput(profileId: string, report: BenchReport): Promise<void> {
-    const rung = report.output
-    if (!rung || rung.status === 'skipped') return
-    const built = buildBenchRequest(BENCH_PROBE_CHARS, 'output')
-    rung.estimatedTokens = built.estimatedTokens
-    rung.actualChars = built.charCount
-    rung.status = 'running'
-    this.emit(report, 'output', BENCH_PROBE_CHARS)
-    const outcome = await this.streamOnce({
-      profileId,
-      messages: built.messages,
-      tools: built.tools,
-      maxOutputTokens: BENCH_OUTPUT_MAX_TOKENS,
-      toolChoice: 'none',
-    })
-    rung.outputChars = outcome.outputChars
-    const genMs = Math.max(1, outcome.totalMs - (outcome.ttftMs ?? 0))
-    rung.outputCharsPerSec = outcome.outputChars > 0
-      ? Math.round((outcome.outputChars / genMs) * 1000)
-      : 0
-    if (!this.applyOutcome(rung, outcome)) {
-      this.emit(report, 'output', BENCH_PROBE_CHARS)
-      return
-    }
-    rung.success = !rung.truncated && outcome.outputChars > 0
-    rung.status = rung.success ? 'ok' : 'error'
-    if (rung.truncated) rung.error = 'truncated'
-    else if (outcome.outputChars <= 0) rung.error = 'empty_output'
-    this.emit(report, 'output', BENCH_PROBE_CHARS)
   }
 
   private async runTools(profileId: string, report: BenchReport): Promise<void> {

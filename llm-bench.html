@@ -97,7 +97,7 @@
   <body>
     <header>
       <h1 id="title">压测控制台</h1>
-      <span class="meta" id="suite">sailfish-bench-v3</span>
+      <span class="meta" id="suite">sailfish-bench-v4</span>
     </header>
     <section class="controls">
       <label>
@@ -129,8 +129,8 @@
           rungs: '要测的字数（不填用默认）',
           start: '开始',
           stop: '停止',
-          hint: '同一套冻住的中文题，一次打完四块。跑完给一个压测分，同一版本下分高就更快更好。跳过和失败按零。',
-          empty: '选一套模型，点开始。跑完看压测分，再对四块表。',
+          hint: '同一套冻住的中文题，一次打完三块。每一档都写一段，表上看首字和写速。跑完给一个压测分，同一版本下分高就更快更好。跳过和失败按零。',
+          empty: '选一套模型，点开始。跑完看压测分，再对三块表。',
           copy: '复制报告',
           save: '保存报告',
           copied: '已复制',
@@ -141,7 +141,7 @@
           tools: '工具往返',
           concurrency: '三路并发',
           scoreLabel: '压测分 · {v}',
-          scoreParts: '上下文 {c} · 输出 {o} · 工具 {t} · 并发 {p}',
+          scoreParts: '上下文 {c} · 写速 {o} · 工具 {t} · 并发 {p}',
           colChars: '字数',
           colIn: '接口输入',
           colStatus: '结果',
@@ -172,8 +172,8 @@
           rungs: 'Character counts (leave empty for defaults)',
           start: 'Start',
           stop: 'Stop',
-          hint: 'Same frozen Chinese suite. One run, then an index score — higher is better on the same suite version. Skips and failures count as zero.',
-          empty: 'Pick a model and start. Read the index first, then the four tables.',
+          hint: 'Same frozen Chinese suite. One run of three blocks. Each length rung writes a passage so you see TTFT and write speed on the same row. Higher index is better on the same suite version. Skips and failures count as zero.',
+          empty: 'Pick a model and start. Read the index first, then the three tables.',
           copy: 'Copy report',
           save: 'Save report',
           copied: 'Copied',
@@ -184,7 +184,7 @@
           tools: 'Tool round-trip',
           concurrency: '3-way concurrency',
           scoreLabel: 'Index · {v}',
-          scoreParts: 'Context {c} · Output {o} · Tools {t} · Concurrency {p}',
+          scoreParts: 'Context {c} · Write {o} · Tools {t} · Concurrency {p}',
           colChars: 'Chars',
           colIn: 'Prompt tokens',
           colStatus: 'Result',
@@ -258,7 +258,6 @@
       function allItems(rep) {
         if (!rep) return []
         const items = [...(rep.rungs || [])]
-        if (rep.output) items.push(rep.output)
         if (rep.tools) items.push(rep.tools.call, rep.tools.after)
         if (rep.concurrency) items.push(...rep.concurrency.lanes)
         return items
@@ -325,19 +324,10 @@
           escapeHtml(statusLabel(r, 'context')),
           escapeHtml(fmtMs(r.ttftMs)),
           escapeHtml(fmtMs(r.totalMs)),
+          escapeHtml(r.outputChars != null ? r.outputChars : '—'),
+          escapeHtml(r.outputCharsPerSec != null ? r.outputCharsPerSec : '—'),
           escapeHtml(note(r)),
         ], statusClass(r))).join('')
-
-        const out = report.output
-        const outputRows = out ? row([
-          escapeHtml(out.targetChars) + ' 字',
-          escapeHtml(out.actualPromptTokens ?? out.estimatedTokens ?? '—'),
-          escapeHtml(statusLabel(out, 'output')),
-          escapeHtml(fmtMs(out.ttftMs)),
-          escapeHtml(out.outputChars != null ? out.outputChars : '—'),
-          escapeHtml(out.outputCharsPerSec != null ? out.outputCharsPerSec : '—'),
-          escapeHtml(note(out)),
-        ], statusClass(out)) : ''
 
         const toolRows = report.tools ? [
           row([
@@ -382,9 +372,7 @@
         results.innerHTML = [
           scoreCard,
           `<h2>${escapeHtml(t.context)}</h2>`,
-          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], contextRows),
-          `<h2>${escapeHtml(t.output)}</h2>`,
-          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colOut, t.colSpeed, t.colNote], outputRows),
+          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colOut, t.colSpeed, t.colNote], contextRows),
           `<h2>${escapeHtml(t.tools)}</h2>`,
           table([t.colStep, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], toolRows),
           `<h2>${escapeHtml(t.concurrency)}</h2>`,

@@ -11,7 +11,7 @@ import {
 
 describe('llm-bench suite', () => {
   it('题版本锁死', () => {
-    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v3')
+    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v4')
   })
 
   it('工具清单冻住完整一套，不读运行时工具表', () => {
@@ -30,7 +30,7 @@ describe('llm-bench suite', () => {
     expect(built.messages[0].content).toContain('你是旗鱼')
     expect(built.messages[0].content).toContain('核心规则')
     expect(built.messages[0].content).toContain('私有工作空间')
-    expect(built.messages[1].content).toContain('周报')
+    expect(built.messages[1].content).toContain('指定正文')
     expect(BENCH_SYSTEM_PROMPT).toMatch(/[\u4e00-\u9fff]/)
     expect(BENCH_USER_INSTRUCTION).toMatch(/[\u4e00-\u9fff]/)
     expect(built.tools.length).toBe(BENCH_TOOLS.length)
@@ -65,12 +65,13 @@ describe('llm-bench suite', () => {
     expect(long.messages[0].content).toContain('隔离=16000')
   })
 
-  it('输出轴带指定正文，和短回不共享前缀', () => {
-    const short = buildBenchRequest(4_000, 'context')
-    const output = buildBenchRequest(4_000, 'output')
-    expect(output.messages[1].content).toContain('指定正文')
-    expect(output.messages[0].content.startsWith(short.messages[0].content)).toBe(false)
-    expect(output.charCount).toBe(4_000)
+  it('长度档带指定正文，并发短回不共享前缀', () => {
+    const context = buildBenchRequest(4_000, 'context')
+    const concurrent = buildBenchRequest(4_000, 'concurrency')
+    expect(context.messages[1].content).toContain('指定正文')
+    expect(concurrent.messages[1].content).toContain('只回复：好')
+    expect(context.messages[0].content.startsWith(concurrent.messages[0].content)).toBe(false)
+    expect(context.charCount).toBe(4_000)
   })
 
   it('工具轴要求读冻住路径', () => {

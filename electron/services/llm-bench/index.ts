@@ -13,7 +13,6 @@ export type {
   BenchProgress,
   BenchReport,
   BenchRungResult,
-  BenchOutputResult,
   BenchToolResult,
   BenchConcurrencyResult,
   BenchScore,

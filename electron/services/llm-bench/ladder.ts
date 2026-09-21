@@ -2,7 +2,7 @@ import { resolveRequestBudget } from '../ai-request-budget'
 import type { AiProfile } from '@shared/types'
 import { buildBenchRequest } from './suite'
 import {
-  BENCH_MAX_OUTPUT_TOKENS,
+  BENCH_OUTPUT_MAX_TOKENS,
   DEFAULT_BENCH_RUNGS,
 } from './types'
 
@@ -29,7 +29,7 @@ export function resolveBenchLadder(
   profile: Pick<AiProfile, 'contextLength' | 'maxOutputTokens'> | null | undefined,
   customRungs?: number[],
 ): ResolvedLadder {
-  const budget = resolveRequestBudget(profile, BENCH_MAX_OUTPUT_TOKENS)
+  const budget = resolveRequestBudget(profile, BENCH_OUTPUT_MAX_TOKENS)
   const requested = customRungs && customRungs.length > 0
     ? uniquePositiveInts(customRungs)
     : uniquePositiveInts([...DEFAULT_BENCH_RUNGS])

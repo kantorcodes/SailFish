@@ -2,7 +2,6 @@ import {
   BENCH_PROBE_CHARS,
   BENCH_SCORE_REF,
   type BenchConcurrencyResult,
-  type BenchOutputResult,
   type BenchReport,
   type BenchRungResult,
   type BenchScore,
@@ -38,10 +37,14 @@ export function scoreContext(rungs: BenchRungResult[]): number {
   return scale(raw, BENCH_SCORE_REF.contextCharsPerSecSum)
 }
 
-export function scoreOutput(output: BenchOutputResult | undefined): number {
-  if (!ok(output)) return 0
-  const raw = output.outputCharsPerSec ?? charsPerSec(output.outputChars ?? 0, Math.max(1, (output.totalMs ?? 0) - (output.ttftMs ?? 0)))
-  return scale(raw, BENCH_SCORE_REF.outputCharsPerSec)
+export function scoreOutput(rungs: BenchRungResult[]): number {
+  const raw = rungs.reduce((sum, rung) => {
+    if (!ok(rung)) return sum
+    const cps = rung.outputCharsPerSec
+      ?? charsPerSec(rung.outputChars ?? 0, Math.max(1, (rung.totalMs ?? 0) - (rung.ttftMs ?? 0)))
+    return sum + cps
+  }, 0)
+  return scale(raw, BENCH_SCORE_REF.outputCharsPerSecSum)
 }
 
 export function scoreTools(tools: BenchToolResult | undefined): number {
@@ -59,9 +62,9 @@ export function scoreConcurrency(block: BenchConcurrencyResult | undefined): num
   return scale(raw, BENCH_SCORE_REF.concurrencyCharsPerSec)
 }
 
-export function scoreBenchReport(report: Pick<BenchReport, 'rungs' | 'output' | 'tools' | 'concurrency'>): BenchScore {
+export function scoreBenchReport(report: Pick<BenchReport, 'rungs' | 'tools' | 'concurrency'>): BenchScore {
   const context = scoreContext(report.rungs)
-  const output = scoreOutput(report.output)
+  const output = scoreOutput(report.rungs)
   const tools = scoreTools(report.tools)
   const concurrency = scoreConcurrency(report.concurrency)
   return {

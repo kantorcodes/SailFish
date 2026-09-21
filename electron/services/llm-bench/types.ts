@@ -1,13 +1,13 @@
 /** 冻住的标准题版本。换机器、换模型比的是这一版题。 */
-export const BENCH_SUITE_VERSION = 'sailfish-bench-v3'
+export const BENCH_SUITE_VERSION = 'sailfish-bench-v4'
 
-/** 短回够用即可，避免生成长短搅乱耗时。 */
+/** 并发短回够用即可，避免生成长短搅乱耗时。 */
 export const BENCH_MAX_OUTPUT_TOKENS = 64
 
-/** 输出速度轴：要写完那段冻住的话。 */
+/** 长度档要写完那段冻住的话。 */
 export const BENCH_OUTPUT_MAX_TOKENS = 1024
 
-/** 输出 / 工具 / 并发用的固定上下文，不跟长度扫搅在一起。 */
+/** 工具 / 并发用的固定上下文，不跟长度扫搅在一起。 */
 export const BENCH_PROBE_CHARS = 4_000
 
 /** 同时打几路，像桌上常见的三件套。 */
@@ -18,7 +18,7 @@ export const BENCH_TEMPERATURE = 0.7
 
 export const DEFAULT_BENCH_RUNGS = [4_000, 16_000, 32_000, 64_000, 128_000] as const
 
-export type BenchSection = 'context' | 'output' | 'tools' | 'concurrency'
+export type BenchSection = 'context' | 'tools' | 'concurrency'
 
 export type BenchRungStatus = 'pending' | 'running' | 'ok' | 'error' | 'skipped' | 'aborted'
 
@@ -46,9 +46,6 @@ export interface BenchRungResult {
   rateLimited: boolean
   truncated: boolean
   httpStatus?: number
-}
-
-export interface BenchOutputResult extends BenchRungResult {
   outputChars?: number
   outputCharsPerSec?: number
 }
@@ -72,7 +69,7 @@ export interface BenchConcurrencyResult {
 /** 分项对照：这项跑到这个数大约得 1000。只跟同一题版本比。 */
 export const BENCH_SCORE_REF = {
   contextCharsPerSecSum: 40_000,
-  outputCharsPerSec: 40,
+  outputCharsPerSecSum: 200,
   toolsRoundTripMs: 2_000,
   concurrencyCharsPerSec: 8_000,
 } as const
@@ -94,7 +91,6 @@ export interface BenchReport {
   inputLimit: number
   temperature: number
   rungs: BenchRungResult[]
-  output?: BenchOutputResult
   tools?: BenchToolResult
   concurrency?: BenchConcurrencyResult
   score?: BenchScore

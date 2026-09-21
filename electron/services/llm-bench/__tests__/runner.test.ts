@@ -56,7 +56,7 @@ function smartAi(): BenchAiClient {
 }
 
 describe('llm-bench runner', () => {
-  it('一次跑完四块：长度、输出、工具、三路并发', async () => {
+  it('一次跑完三块：长度含写速、工具、三路并发', async () => {
     const runner = new LlmBenchRunner({
       ai: smartAi(),
       listProfiles: () => [fakeProfile()],
@@ -70,11 +70,11 @@ describe('llm-bench runner', () => {
     const ran = report.rungs.filter(r => r.status === 'ok')
     expect(ran.length).toBeGreaterThan(0)
     expect(ran[0].ttftMs).toBeGreaterThanOrEqual(0)
-    expect(ran[0].actualPromptTokens).toBe(4100)
+    expect(ran[0].actualPromptTokens).toBe(4000)
 
-    expect(report.output?.status).toBe('ok')
-    expect(report.output?.outputChars).toBeGreaterThan(0)
-    expect(report.output?.outputCharsPerSec).toBeGreaterThanOrEqual(0)
+    expect(ran.every(r => (r.outputChars ?? 0) > 0)).toBe(true)
+    expect(ran[0].outputCharsPerSec).toBeGreaterThanOrEqual(0)
+    expect(report.output).toBeUndefined()
 
     expect(report.tools?.call.calledTool).toBe(true)
     expect(report.tools?.call.toolName).toBe('read_file')

@@ -118,7 +118,7 @@ SailFish/
 └── package.json                 # 依赖 & 脚本
 ```
 
-> 次要单文件服务（`menu` / `xshell-import` / `screen-content` / `ai-debug` / `command-executor` / `skill-market` / `user-skill` / `file-search` / `terminal-state` / `llm-bench`）不构成架构关键路径，按需查阅源码即可。废弃服务 `scheduler.service.ts` 已整合进关切系统（启动时自动迁移），保留仅为兼容。压测控制台（`llm-bench`）是独立工程窗口，不进秘书主界面；题冻住（中文、按字数分档），一次打完上下文长短、输出速度、工具往返、三路并发，用来比较不同机器/模型的接口表现。
+> 次要单文件服务（`menu` / `xshell-import` / `screen-content` / `ai-debug` / `command-executor` / `skill-market` / `user-skill` / `file-search` / `terminal-state` / `llm-bench`）不构成架构关键路径，按需查阅源码即可。废弃服务 `scheduler.service.ts` 已整合进关切系统（启动时自动迁移），保留仅为兼容。压测控制台（`llm-bench`）是独立工程窗口，不进秘书主界面；题冻住（中文、按字数分档），一次打完上下文长短（每档含写速）、工具往返、三路并发，用来比较不同机器/模型的接口表现。
 
 ## 关键架构模式
 

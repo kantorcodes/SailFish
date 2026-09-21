@@ -13,7 +13,7 @@ export const BENCH_TOOL_OBSERVATION = [
   '待办未勾：寄发票、回客户邮件、更新看板。',
 ].join('\n')
 
-/** 冻住的指定正文，输出轴原样抄这一段。 */
+/** 冻住的指定正文，每一档长度都原样抄这一段。 */
 export const BENCH_OUTPUT_PASSAGE = [
   '本周工作对齐如下。产品侧完成设置页改版草案，待设计确认间距和暗色对比。',
   '工程侧修了远程会话重连后输出丢行的问题，回归尚未跑满。',
@@ -76,8 +76,7 @@ export const BENCH_SYSTEM_CORE = [
 ].join('\n')
 
 const SYSTEM_CLOSER: Record<BenchSection, string> = {
-  context: '本轮是标准化接口压测。不要调用任何工具。只回复：好',
-  output: '本轮是标准化接口压测。不要调用任何工具。只输出指定正文，不要加别的字。',
+  context: '本轮是标准化接口压测。不要调用任何工具。只输出指定正文，不要加别的字。',
   tools: '本轮是标准化接口压测。必须调用指定工具，不要用文字代替。',
   concurrency: '本轮是标准化接口压测。不要调用任何工具。只回复：好',
 }
@@ -108,7 +107,7 @@ export const BENCH_USER_TOOL = [
 export const BENCH_SYSTEM_PROMPT = `${BENCH_SYSTEM_CORE}\n\n${SYSTEM_CLOSER.context}`
 
 function userHeadFor(axis: BenchSection): string {
-  if (axis === 'output') return BENCH_USER_OUTPUT
+  if (axis === 'context') return BENCH_USER_OUTPUT
   if (axis === 'tools') return BENCH_USER_TOOL
   return BENCH_USER_INSTRUCTION
 }
