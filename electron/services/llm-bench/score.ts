@@ -1,5 +1,4 @@
 import {
-  BENCH_PROBE_CHARS,
   BENCH_SCORE_REF,
   type BenchConcurrencyResult,
   type BenchReport,
@@ -54,12 +53,14 @@ export function scoreTools(tools: BenchToolResult | undefined): number {
   return scale(BENCH_SCORE_REF.toolsRoundTripMs, ms)
 }
 
+/** 三路一起上，看最慢那一路第一个字多久出来——写多写少不该影响这一项。 */
 export function scoreConcurrency(block: BenchConcurrencyResult | undefined): number {
   if (!block || block.lanes.length === 0) return 0
   if (block.lanes.some(lane => !ok(lane))) return 0
-  const slowest = Math.max(...block.lanes.map(lane => lane.totalMs ?? 0))
-  const raw = charsPerSec(BENCH_PROBE_CHARS, slowest)
-  return scale(raw, BENCH_SCORE_REF.concurrencyCharsPerSec)
+  // 没量到首字就退回整轮：缺首字不等于零延迟，当零会把最慢一路悄悄抹掉
+  // 量到 0 毫秒只会出现在假客户端里；给一个毫秒下限，别让它变成除零
+  const slowestTtft = Math.max(1, ...block.lanes.map(lane => lane.ttftMs ?? lane.totalMs ?? 0))
+  return scale(BENCH_SCORE_REF.concurrencySlowestTtftMs, slowestTtft)
 }
 
 export function scoreBenchReport(report: Pick<BenchReport, 'rungs' | 'tools' | 'concurrency'>): BenchScore {

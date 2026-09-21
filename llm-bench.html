@@ -103,7 +103,7 @@
         flex: none;
         position: relative;
         display: grid;
-        grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1.4fr) auto auto;
+        grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1.4fr) auto auto auto;
         gap: 10px 12px;
         align-items: end;
         padding: 14px 18px 12px;
@@ -111,6 +111,7 @@
         background: linear-gradient(180deg, rgba(26, 33, 43, .5), rgba(20, 26, 34, .2));
       }
       label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+      label.shots { min-width: 96px; }
       label > span { font-size: 11px; color: var(--muted); }
       select, input {
         width: 100%;
@@ -277,6 +278,7 @@
       tbody tr.is-running td { background: rgba(88, 166, 255, .07); }
       tbody tr.is-running td:first-child { box-shadow: inset 2px 0 0 var(--blue); }
       td.head { font-weight: 550; }
+      td.warn { color: var(--yellow); }
       td.note { width: 99%; white-space: normal; color: var(--faint); font-size: 11.5px; }
 
       .badge {
@@ -336,7 +338,7 @@
   <body>
     <header>
       <h1 id="title">压测控制台</h1>
-      <span class="tag" id="suite">sailfish-bench-v4</span>
+      <span class="tag" id="suite">sailfish-bench-v6</span>
       <span class="spacer"></span>
       <span class="state" id="state" data-state="idle" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><em id="stateText" style="font-style: normal">待命</em></span>
     </header>
@@ -349,6 +351,10 @@
       <label>
         <span id="lblRungs">要测的字数（不填用默认）</span>
         <input id="rungs" placeholder="4000, 16000, 32000, 64000, 128000" />
+      </label>
+      <label class="shots">
+        <span id="lblShots">每档打几发</span>
+        <select id="shots"></select>
       </label>
       <button class="primary" id="startBtn">开始</button>
       <button class="danger" id="stopBtn" disabled>停止</button>
@@ -380,9 +386,11 @@
           title: '压测控制台',
           profile: '模型',
           rungs: '上下文字数（留空用默认档位）',
+          shots: '每档打几发',
+          shotOption: '{v} 发',
           start: '开始测试',
           stop: '停止',
-          hint: '固定题目，一次跑完三项：上下文长度、工具调用、三路并发。每个长度档都让模型写完同一段正文，因此首字延迟和输出速度都在同一行里看。跑完给出压测分，同版本题目下分数越高越快。跳过与失败计零分。',
+          hint: '固定题目，一次跑完三项：上下文长度、工具调用、三路并发。每个长度档都让模型写完同一段正文，因此首字延迟和输出速度都在同一行里看。整套题重复打几遍，每档取首字延迟居中的那一发；任一发失败即该档不通过。跑完给出压测分，同版本题目下分数越高越快。',
           empty: '选择模型后点「开始测试」。跑完先看压测分，再逐项对照下面三张表。',
           copy: '复制报告',
           save: '保存报告',
@@ -404,7 +412,11 @@
           metaWindow: '窗口 {v}',
           metaTemp: '温度 {v}',
           metaElapsed: '耗时 {v}',
+          metaShots: '每档 {v} 发取中',
           summary: '通过 {ok}/{total}',
+          stateRunningShot: '第 {shot}/{total} 遍',
+          colSpread: '首字波动',
+          shotFailed: '第 {v} 发未通过',
           colChars: '上下文字数',
           colIn: '输入 tokens',
           colStatus: '状态',
@@ -426,6 +438,8 @@
           streamCut: '流式中断',
           emptyOutput: '无输出',
           noTool: '未发起工具调用',
+          unexpectedTool: '不该调工具却调了',
+          offPassage: '没照抄（应 {v} 字），这档写速别跟其它档比',
           toolCall: '发起调用',
           toolAfter: '处理返回结果',
         },
@@ -433,9 +447,11 @@
           title: 'Benchmark Console',
           profile: 'Model',
           rungs: 'Context sizes in characters (empty for defaults)',
+          shots: 'Runs per size',
+          shotOption: '{v}×',
           start: 'Start',
           stop: 'Stop',
-          hint: 'A fixed suite, three sections in one run: context length, tool calling, and three concurrent lanes. Every length step writes the same passage, so time to first token and output speed sit on the same row. The index at the end is comparable across models on the same suite version; skipped and failed items score zero.',
+          hint: 'A fixed suite, three sections in one run: context length, tool calling, and three concurrent lanes. Every length step writes the same passage, so time to first token and output speed sit on the same row. The whole suite repeats a few times; each size reports the run with the median first-token latency, and any failed run fails that size. The index at the end is comparable across models on the same suite version.',
           empty: 'Pick a model and press Start. Read the index first, then compare the three tables below.',
           copy: 'Copy report',
           save: 'Save report',
@@ -457,7 +473,11 @@
           metaWindow: 'Window {v}',
           metaTemp: 'Temp {v}',
           metaElapsed: 'Elapsed {v}',
+          metaShots: 'Median of {v} runs',
           summary: '{ok}/{total} passed',
+          stateRunningShot: 'Pass {shot}/{total}',
+          colSpread: 'First-token spread',
+          shotFailed: 'Run {v} failed',
           colChars: 'Context chars',
           colIn: 'Input tokens',
           colStatus: 'Status',
@@ -479,6 +499,8 @@
           streamCut: 'Stream interrupted',
           emptyOutput: 'No output',
           noTool: 'No tool call issued',
+          unexpectedTool: 'Called a tool when told not to',
+          offPassage: 'Did not copy the passage ({v} chars expected); speed not comparable',
           toolCall: 'Issue call',
           toolAfter: 'Handle result',
         }
@@ -496,9 +518,12 @@
       }
 
       const api = window.electronAPI
+      /** 与后端 BENCH_SHOT_CHOICES 同一套；默认取中间那个（3 发）。 */
+      const SHOT_CHOICES = [1, 3, 5]
       let t = I18N['zh-CN']
       let report = null
       let running = false
+      let currentShot = 0
 
       function toast(msg) {
         const el = document.getElementById('toast')
@@ -512,6 +537,10 @@
         document.getElementById('title').textContent = t.title
         document.getElementById('lblProfile').textContent = t.profile
         document.getElementById('lblRungs').textContent = t.rungs
+        document.getElementById('lblShots').textContent = t.shots
+        for (const option of document.getElementById('shots').options) {
+          option.textContent = t.shotOption.replace('{v}', option.value)
+        }
         document.getElementById('startBtn').textContent = t.start
         document.getElementById('stopBtn').textContent = t.stop
         document.getElementById('hint').textContent = t.hint
@@ -543,6 +572,21 @@
         return Number.isFinite(value) ? value.toLocaleString('en-US') : String(value)
       }
 
+      /** 打了不止一发又没过时，说清是第几发挂的。 */
+      function failedShot(rung) {
+        if (rung.success || !(rung.shots?.length > 1) || !rung.shotIndex) return ''
+        return t.shotFailed.replace('{v}', String(rung.shotIndex))
+      }
+
+      /** 这一档几发之间首字差多少。只有一发就没得比。 */
+      function spread(rung) {
+        const shots = (rung.shots || []).map(s => s.ttftMs).filter(v => Number.isFinite(v))
+        if (shots.length < 2) return '—'
+        const lo = Math.min(...shots)
+        const hi = Math.max(...shots)
+        return lo === hi ? fmtMs(lo) : `${fmtMs(lo)}~${fmtMs(hi)}`
+      }
+
       /** 还没打的那行没有估值，别把占位的 0 当成真读数。 */
       function promptTokens(rung) {
         return fmtNum(rung.actualPromptTokens ?? (rung.estimatedTokens || null))
@@ -567,6 +611,7 @@
         if (rung.rateLimited) return t.rateLimited
         if (rung.error === 'empty_output') return t.emptyOutput
         if (rung.error === 'no_tool_call') return t.noTool
+        if (rung.error === 'unexpected_tool_call') return t.unexpectedTool
         if (rung.truncated) return t.truncated
         if (rung.error === 'stream_cut') return t.streamCut
         return rung.error || 'error'
@@ -582,6 +627,11 @@
 
       function badge(rung) {
         return `<span class="badge ${statusKind(rung)}"><i></i>${escapeHtml(statusLabel(rung))}</span>`
+      }
+
+      /** 判没判「没照抄」由后端定（它看得到不含思考的正文），这里只负责显示。 */
+      function offPassage(rung) {
+        return rung.status === 'ok' && rung.offPassage === true
       }
 
       /** 备注只留反常的：正常收尾和 200 不占位置，异常才跳出来。 */
@@ -638,6 +688,7 @@
           t.metaWindow.replace('{v}', fmtNum(rep.contextLength)),
           t.metaTemp.replace('{v}', fmtNum(rep.temperature)),
           t.metaElapsed.replace('{v}', fmtDuration(rep.finishedAt - rep.startedAt)),
+          rep.shotsPerRung > 1 ? t.metaShots.replace('{v}', fmtNum(rep.shotsPerRung)) : '',
         ].filter(Boolean)
         return `<section class="score ${s.total === 0 ? 'is-zero' : ''}">
           <div class="score-head">
@@ -663,11 +714,20 @@
         // 「在跑」优先于「跑完」：刚点开始时手上还是上一份带完成时间的报告
         const state = busy || running ? 'running' : rep?.finishedAt ? 'done' : 'idle'
         el.dataset.state = state
+        const total = rep?.shotsPerRung || 0
+        const runningPass = total > 1 && currentShot
+          ? t.stateRunningShot.replace('{shot}', String(currentShot)).replace('{total}', String(total))
+          : t.stateRunning
         document.getElementById('stateText').textContent =
-          state === 'running' ? t.stateRunning : state === 'done' ? t.stateDone : t.stateIdle
+          state === 'running' ? runningPass : state === 'done' ? t.stateDone : t.stateIdle
 
-        const settled = items.filter(r => r.status !== 'pending' && r.status !== 'running').length
-        const pct = items.length ? Math.round((settled / items.length) * 100) : 0
+        // 进度按「打了几发 × 几项」算，否则三遍下来进度条会在 100% 上卡着不动
+        const passes = Math.max(1, total)
+        const done = items.reduce((sum, r) => {
+          if (r.status === 'skipped') return sum + passes
+          return sum + Math.min(passes, r.shots?.length ?? 0)
+        }, 0)
+        const pct = items.length ? Math.round((done / (items.length * passes)) * 100) : 0
         bar.style.width = pct + '%'
         wrap.setAttribute('aria-valuenow', String(pct))
         wrap.classList.toggle('active', state === 'running')
@@ -694,9 +754,17 @@
           { html: badge(r) },
           { v: fmtMs(r.ttftMs), cls: 'r num' },
           { v: fmtMs(r.totalMs), cls: 'r num' },
-          { v: fmtNum(r.outputChars), cls: 'r num' },
-          { v: fmtNum(r.outputCharsPerSec), cls: 'r num' },
-          { v: note(r), cls: 'note' },
+          { v: spread(r), cls: 'r num faint' },
+          { v: fmtNum(r.outputChars), cls: 'r num' + (offPassage(r) ? ' warn' : '') },
+          { v: fmtNum(r.outputCharsPerSec), cls: 'r num' + (offPassage(r) ? ' warn' : '') },
+          {
+            v: [
+              offPassage(r) ? t.offPassage.replace('{v}', fmtNum(report.passageChars)) : '',
+              failedShot(r),
+              note(r),
+            ].filter(s => s && s !== '—').join(' · ') || '—',
+            cls: 'note' + (offPassage(r) ? ' warn' : ''),
+          },
         ])).join('')
 
         const toolTurns = report.tools ? [report.tools.call, report.tools.after] : []
@@ -706,7 +774,8 @@
           { html: badge(turn) },
           { v: fmtMs(turn.ttftMs), cls: 'r num' },
           { v: fmtMs(turn.totalMs), cls: 'r num' },
-          { v: note(turn), cls: 'note' },
+          { v: spread(turn), cls: 'r num faint' },
+          { v: [failedShot(turn), note(turn)].filter(s => s && s !== '—').join(' · ') || '—', cls: 'note' },
         ])).join('')
 
         const lanes = report.concurrency?.lanes || []
@@ -716,7 +785,8 @@
           { html: badge(r) },
           { v: fmtMs(r.ttftMs), cls: 'r num' },
           { v: fmtMs(r.totalMs), cls: 'r num' },
-          { v: note(r), cls: 'note' },
+          { v: spread(r), cls: 'r num faint' },
+          { v: [failedShot(r), note(r)].filter(s => s && s !== '—').join(' · ') || '—', cls: 'note' },
         ])).join('')
 
         const turnHeaders = (first) => [
@@ -725,6 +795,7 @@
           { label: t.colStatus },
           { label: t.colTtft, cls: 'r' },
           { label: t.colTotal, cls: 'r' },
+          { label: t.colSpread, cls: 'r' },
           { label: t.colNote },
         ]
 
@@ -736,6 +807,7 @@
             { label: t.colStatus },
             { label: t.colTtft, cls: 'r' },
             { label: t.colTotal, cls: 'r' },
+            { label: t.colSpread, cls: 'r' },
             { label: t.colOut, cls: 'r' },
             { label: t.colSpeed, cls: 'r' },
             { label: t.colNote },
@@ -755,12 +827,16 @@
         document.getElementById('stopBtn').disabled = !on
         document.getElementById('profile').disabled = on
         document.getElementById('rungs').disabled = on
+        document.getElementById('shots').disabled = on
         renderState(report, allItems(report))
       }
 
       async function init() {
         const locale = await api.llmBenchGetLocale()
         t = I18N[locale] || I18N['zh-CN']
+        document.getElementById('shots').innerHTML = SHOT_CHOICES
+          .map(n => `<option value="${n}"${n === SHOT_CHOICES[1] ? ' selected' : ''}>${n}</option>`)
+          .join('')
         applyI18n()
 
         const profiles = await api.llmBenchListProfiles()
@@ -782,6 +858,7 @@
         setRunning(await api.llmBenchIsRunning())
 
         api.onLlmBenchProgress((progress) => {
+          if (progress?.currentShot) currentShot = progress.currentShot
           if (progress && progress.report) render(progress.report)
           const items = allItems(progress?.report)
           const still = progress?.report?.finishedAt == null
@@ -794,9 +871,11 @@
       document.getElementById('startBtn').addEventListener('click', async () => {
         const profileId = document.getElementById('profile').value
         if (!profileId) return toast(t.noProfile)
+        currentShot = 1
         const rungs = parseRungs(document.getElementById('rungs').value)
+        const shots = Number(document.getElementById('shots').value) || SHOT_CHOICES[1]
         setRunning(true)
-        const result = await api.llmBenchStart({ profileId, rungs })
+        const result = await api.llmBenchStart({ profileId, rungs, shots })
         if (!result?.ok) {
           setRunning(false)
           toast(result?.error || 'error')

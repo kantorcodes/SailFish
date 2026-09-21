@@ -1,9 +1,11 @@
 import type { ToolDefinition } from '../ai.service'
 
+type BenchToolProperties = ToolDefinition['function']['parameters']['properties']
+
 function tool(
   name: string,
   description: string,
-  properties: Record<string, unknown>,
+  properties: BenchToolProperties,
   required: string[],
 ): ToolDefinition {
   return {

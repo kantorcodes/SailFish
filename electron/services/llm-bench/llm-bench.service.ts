@@ -5,6 +5,7 @@ import { getLocale } from '../../i18n/main-i18n'
 import type { AiService } from '../ai.service'
 import type { ConfigService } from '../config.service'
 import { LlmBenchRunner } from './runner'
+import { BENCH_OUTPUT_PASSAGE } from './suite'
 import {
   BENCH_SUITE_VERSION,
   BENCH_TEMPERATURE,
@@ -98,6 +99,8 @@ export class LlmBenchService {
           contextLength: 0,
           inputLimit: 0,
           temperature: BENCH_TEMPERATURE,
+          passageChars: BENCH_OUTPUT_PASSAGE.length,
+          shotsPerRung: 0,
           rungs: [{
             targetChars: 0,
             actualChars: 0,

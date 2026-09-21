@@ -11,7 +11,7 @@ import {
 
 describe('llm-bench suite', () => {
   it('题版本锁死', () => {
-    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v4')
+    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v6')
   })
 
   it('工具清单冻住完整一套，不读运行时工具表', () => {
@@ -40,7 +40,19 @@ describe('llm-bench suite', () => {
     const target = 4_000
     const built = buildBenchRequest(target)
     expect(built.charCount).toBe(target)
-    expect(built.messages[1].content).toContain('垫上下文')
+    expect(built.messages[1].content).toContain('会议室纪要补充')
+  })
+
+  it('要做的事压在垫料之后，紧挨着生成处', () => {
+    for (const axis of ['context', 'tools', 'concurrency'] as const) {
+      const built = buildBenchRequest(128_000, axis)
+      const user = built.messages[1].content as string
+      const askAt = user.indexOf('现在是本轮要做的事')
+      const ballastAt = user.indexOf('会议室纪要补充')
+      expect(askAt).toBeGreaterThan(ballastAt)
+      // 指令离结尾不超过几百字，不再被十几万字垫料埋在前面
+      expect(user.length - askAt).toBeLessThan(500)
+    }
   })
 
   it('目标小于底座时不垫', () => {

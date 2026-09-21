@@ -2166,7 +2166,7 @@ interface Window {
     llmBenchListProfiles: () => Promise<Array<{ id: string; name: string; model: string; apiUrl: string; contextLength?: number }>>
     llmBenchGetActiveProfileId: () => Promise<string>
     llmBenchGetLocale: () => Promise<'zh-CN' | 'en-US'>
-    llmBenchStart: (input: { profileId: string; rungs?: number[] }) => Promise<{ ok: boolean; error?: string }>
+    llmBenchStart: (input: { profileId: string; rungs?: number[]; shots?: number }) => Promise<{ ok: boolean; error?: string }>
     llmBenchStop: () => Promise<boolean>
     llmBenchIsRunning: () => Promise<boolean>
     llmBenchGetReport: () => Promise<unknown>

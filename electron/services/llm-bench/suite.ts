@@ -13,7 +13,7 @@ export const BENCH_TOOL_OBSERVATION = [
   '待办未勾：寄发票、回客户邮件、更新看板。',
 ].join('\n')
 
-/** 冻住的指定正文，每一档长度都原样抄这一段。 */
+/** 冻住的指定正文，每一档长度都原样抄这一段。抄得对不对，看写出多少字。 */
 export const BENCH_OUTPUT_PASSAGE = [
   '本周工作对齐如下。产品侧完成设置页改版草案，待设计确认间距和暗色对比。',
   '工程侧修了远程会话重连后输出丢行的问题，回归尚未跑满。',
@@ -81,32 +81,37 @@ const SYSTEM_CLOSER: Record<BenchSection, string> = {
   concurrency: '本轮是标准化接口压测。不要调用任何工具。只回复：好',
 }
 
-export const BENCH_USER_INSTRUCTION = [
+/** 垫料前的开场白：交代下面一大段是用来垫长度的，让它照常读过去。 */
+export const BENCH_USER_OPENING = [
   '[时间 2026-09-18 10:12]',
-  '帮我理一下这周工作：桌面上有一份周报草稿，待办里还有几条没勾。先看内容，不要改文件。',
-  '本轮压测，不要调用工具，只回复：好',
-  '--- 以下是垫上下文的历史摘录，请忽略 ---',
+  '下面先是一段历史摘录，用来垫上下文，读过去即可；真正要做的事写在最后。',
+  '--- 历史摘录开始 ---',
+].join('\n')
+
+export const BENCH_USER_INSTRUCTION = [
+  '--- 历史摘录结束 ---',
+  '现在是本轮要做的事：这是标准化接口压测，不要调用工具，只回复：好',
 ].join('\n')
 
 export const BENCH_USER_OUTPUT = [
-  '[时间 2026-09-18 10:12]',
-  '请把下面「指定正文」原样输出一遍，一个字都不要多，不要调用工具。',
+  '--- 历史摘录结束 ---',
+  '现在是本轮要做的事：请把下面「指定正文」原样输出一遍，一个字都不要多，不要调用工具。',
   '--- 指定正文 ---',
   BENCH_OUTPUT_PASSAGE,
   '--- 以上是指定正文 ---',
-  '--- 以下是垫上下文的历史摘录，请忽略 ---',
+  '照抄上面这段指定正文，现在开始输出。',
 ].join('\n')
 
 export const BENCH_USER_TOOL = [
-  '[时间 2026-09-18 10:12]',
-  `请调用 read_file，path 固定为 ${BENCH_TOOL_PATH}。不要用文字代替工具调用，不要回复别的。`,
-  '--- 以下是垫上下文的历史摘录，请忽略 ---',
+  '--- 历史摘录结束 ---',
+  `现在是本轮要做的事：请调用 read_file，path 固定为 ${BENCH_TOOL_PATH}。不要用文字代替工具调用，不要回复别的。`,
 ].join('\n')
 
 /** 短回题的系统说明（上下文 / 并发）。 */
 export const BENCH_SYSTEM_PROMPT = `${BENCH_SYSTEM_CORE}\n\n${SYSTEM_CLOSER.context}`
 
-function userHeadFor(axis: BenchSection): string {
+/** 要做的事一律压在垫料之后，紧挨着它开口的地方——埋在前面它就只在最短一档照抄。 */
+function userTailFor(axis: BenchSection): string {
   if (axis === 'context') return BENCH_USER_OUTPUT
   if (axis === 'tools') return BENCH_USER_TOOL
   return BENCH_USER_INSTRUCTION
@@ -116,9 +121,14 @@ function systemFor(axis: BenchSection): string {
   return `${BENCH_SYSTEM_CORE}\n\n${SYSTEM_CLOSER[axis]}`
 }
 
-/** 挡开各档、各轴、各路共享的前缀。 */
-export function benchIsolateLine(targetChars: number, axis: BenchSection = 'context', lane = 0): string {
-  return `${BENCH_SUITE_VERSION} 隔离=${targetChars} 轴=${axis} 路=${lane}`
+/** 挡开各档、各轴、各路、各发共享的前缀。同一档打第二发也要当没跑过。 */
+export function benchIsolateLine(
+  targetChars: number,
+  axis: BenchSection = 'context',
+  lane = 0,
+  shot = 0,
+): string {
+  return `${BENCH_SUITE_VERSION} 隔离=${targetChars} 轴=${axis} 路=${lane} 发=${shot}`
 }
 
 export function benchPadUnit(targetChars: number): string {
@@ -140,10 +150,14 @@ export function estimateBenchBaseChars(
   targetChars: number,
   axis: BenchSection = 'context',
   lane = 0,
+  shot = 0,
 ): number {
-  const isolate = benchIsolateLine(targetChars, axis, lane)
+  const isolate = benchIsolateLine(targetChars, axis, lane, shot)
+  // +2 与 buildBenchRequest 对齐：开场白、垫料、指令之间的两个换行
   return countChars(`${isolate}\n${systemFor(axis)}`)
-    + countChars(`${isolate}\n${userHeadFor(axis)}`)
+    + countChars(`${isolate}\n${BENCH_USER_OPENING}`)
+    + countChars(userTailFor(axis))
+    + 2
 }
 
 export function padToTargetChars(baseChars: number, targetChars: number): string {
@@ -168,13 +182,16 @@ export function buildBenchRequest(
   targetChars: number,
   axis: BenchSection = 'context',
   lane = 0,
+  shot = 0,
 ): BuiltBenchRequest {
-  const isolate = benchIsolateLine(targetChars, axis, lane)
+  const isolate = benchIsolateLine(targetChars, axis, lane, shot)
   const system = `${isolate}\n${systemFor(axis)}`
-  const userHead = `${isolate}\n${userHeadFor(axis)}`
-  const headChars = countChars(system) + countChars(userHead)
-  const ballast = padToTargetChars(headChars + 1, targetChars)
-  const userContent = ballast ? `${userHead}\n${ballast}` : userHead
+  const opening = `${isolate}\n${BENCH_USER_OPENING}`
+  const tail = userTailFor(axis)
+  // +2 是开场白、垫料、指令之间的两个换行
+  const fixedChars = countChars(system) + countChars(opening) + countChars(tail) + 2
+  const ballast = padToTargetChars(fixedChars, targetChars)
+  const userContent = ballast ? `${opening}\n${ballast}\n${tail}` : `${opening}\n${tail}`
   const messages: AiMessage[] = [
     { role: 'system', content: system },
     { role: 'user', content: userContent },
