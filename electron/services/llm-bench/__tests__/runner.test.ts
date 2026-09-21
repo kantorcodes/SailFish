@@ -132,7 +132,7 @@ describe('llm-bench runner', () => {
     expect(report.rungs[0].success).toBe(false)
   })
 
-  it('叫工具和收回来不另卡输出额度', async () => {
+  it('发起调用和处理返回结果都不另卡输出额度', async () => {
     const caps: Array<number | undefined> = []
     const runner = new LlmBenchRunner({
       ai: fakeAi(async (messages, _t, onChunk, onToolCall, onDone, _e, _id, _p, _rid, _r, _ready, _fo, opts) => {

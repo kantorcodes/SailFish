@@ -7,99 +7,341 @@
     <style>
       :root {
         --bg: #0d1117;
-        --bg2: #161b22;
-        --bg3: #21262d;
-        --border: #30363d;
-        --text: #c9d1d9;
+        --surface: #141a22;
+        --surface-2: #1a212b;
+        --surface-3: #222a36;
+        --border: #262e3a;
+        --border-strong: #37414f;
+        --text: #e6edf3;
         --muted: #8b949e;
+        --faint: #848d99;
         --blue: #58a6ff;
+        --violet: #a371f7;
         --green: #3fb950;
         --red: #f85149;
         --yellow: #d29922;
         --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
         --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        --r-sm: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .22);
+        --ease: .18s cubic-bezier(.4, 0, .2, 1);
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; }
       body {
         font-family: var(--sans);
         font-size: 13px;
-        background: var(--bg);
+        line-height: 1.5;
         color: var(--text);
-        height: 100vh;
+        background:
+          radial-gradient(900px 420px at 18% -12%, rgba(88, 166, 255, .10), transparent 70%),
+          radial-gradient(700px 380px at 96% -8%, rgba(163, 113, 247, .09), transparent 70%),
+          var(--bg);
         display: flex;
         flex-direction: column;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
       }
+      .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb {
+        background: #2c3542;
+        border: 2px solid transparent;
+        background-clip: content-box;
+        border-radius: 6px;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: #3c4757; background-clip: content-box; }
+      :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+      /* ── 顶栏 ───────────────────────────────── */
       header {
-        padding: 10px 16px;
-        background: var(--bg2);
-        border-bottom: 1px solid var(--border);
+        flex: none;
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(13, 17, 23, .72);
+        backdrop-filter: blur(12px);
         -webkit-app-region: drag;
       }
-      header h1 { font-size: 15px; font-weight: 600; }
-      .meta { color: var(--muted); font-size: 11px; -webkit-app-region: no-drag; }
-      .controls {
-        padding: 12px 16px;
-        background: var(--bg2);
-        border-bottom: 1px solid var(--border);
+      header h1 { font-size: 14px; font-weight: 650; letter-spacing: .2px; }
+      header .tag, header .state { -webkit-app-region: no-drag; }
+      .tag {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+      }
+      .spacer { flex: 1; }
+      .state {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        color: var(--muted);
+        padding: 3px 10px 3px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+      }
+      .state .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+      .state[data-state="running"] { color: var(--blue); border-color: rgba(88, 166, 255, .35); }
+      .state[data-state="running"] .dot { background: var(--blue); animation: pulse 1.4s ease-in-out infinite; }
+      .state[data-state="done"] { color: var(--green); border-color: rgba(63, 185, 80, .3); }
+      .state[data-state="done"] .dot { background: var(--green); }
+      @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
+
+      /* ── 工具条 ─────────────────────────────── */
+      .toolbar {
+        flex: none;
+        position: relative;
         display: grid;
-        grid-template-columns: 1fr 1fr auto auto;
+        grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1.4fr) auto auto;
         gap: 10px 12px;
         align-items: end;
+        padding: 14px 18px 12px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(26, 33, 43, .5), rgba(20, 26, 34, .2));
       }
-      label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 11px; }
-      select, input, button {
+      label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+      label > span { font-size: 11px; color: var(--muted); }
+      select, input {
+        width: 100%;
         font-family: inherit;
-        font-size: 12px;
-        background: var(--bg3);
+        font-size: 12.5px;
         color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 6px 8px;
+        background: var(--surface-2);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--r-sm);
+        padding: 7px 10px;
+        transition: border-color var(--ease), background var(--ease);
       }
-      button { cursor: pointer; }
-      button:hover { border-color: #484f58; }
-      button.primary { background: #1f6feb; border-color: #1f6feb; color: white; }
-      button.danger { color: var(--red); border-color: var(--red); background: rgba(248, 81, 73, 0.12); }
-      button:disabled { opacity: 0.5; cursor: not-allowed; }
-      .hint { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.5; }
-      main { flex: 1; overflow: auto; padding: 12px 16px 24px; }
-      h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; }
-      h2:first-child { margin-top: 0; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-      th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
-      th { color: var(--muted); font-size: 11px; font-weight: 500; }
-      td.ok { color: var(--green); }
-      td.err { color: var(--red); }
-      td.skip { color: var(--yellow); }
-      .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+      select {
+        appearance: none;
+        padding-right: 28px;
+        background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238b949e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 9px center;
+      }
+      input::placeholder { color: var(--faint); }
+      select:hover:not(:disabled), input:hover:not(:disabled) { border-color: #46515f; }
+      select:focus, input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(88, 166, 255, .16); }
+      select:disabled, input:disabled { opacity: .55; }
+
+      button {
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 550;
+        color: var(--text);
+        background: var(--surface-2);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--r-sm);
+        padding: 7px 14px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background var(--ease), border-color var(--ease), transform var(--ease), opacity var(--ease);
+      }
+      button:hover:not(:disabled) { background: var(--surface-3); border-color: #46515f; }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button.primary {
+        color: #fff;
+        background: linear-gradient(180deg, #3b82f6, #2563eb);
+        border-color: #2f6fe0;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 4px 14px rgba(37, 99, 235, .3);
+      }
+      button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #4b8dfa, #2d6de8); border-color: #3b82f6; }
+      button.danger { color: #ff8b84; border-color: rgba(248, 81, 73, .45); background: rgba(248, 81, 73, .1); }
+      button.danger:hover:not(:disabled) { background: rgba(248, 81, 73, .16); border-color: rgba(248, 81, 73, .7); }
+      button:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; }
+      .hint { grid-column: 1 / -1; font-size: 11.5px; color: var(--faint); line-height: 1.6; }
+
+      .progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; }
+      .progress .bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, var(--blue), var(--violet));
+        transition: width .35s ease, opacity var(--ease);
+      }
+      .progress:not(.active) .bar { opacity: .35; }
+      .progress.active::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, rgba(88, 166, 255, .55), transparent);
+        animation: sweep 1.6s linear infinite;
+      }
+      @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+      /* ── 主体 ───────────────────────────────── */
+      main { flex: 1; overflow: auto; padding: 16px 18px 8px; }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 72px 16px;
+        color: var(--faint);
+        text-align: center;
+      }
+      .empty svg { opacity: .35; }
+      [hidden] { display: none !important; }
+
+      /* 压测分 */
       .score {
-        background: var(--bg2);
+        position: relative;
+        overflow: hidden;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 16px 18px 14px;
-        margin-bottom: 8px;
+        border-radius: var(--r-lg);
+        background: linear-gradient(180deg, var(--surface-2), var(--surface));
+        box-shadow: var(--shadow);
+        padding: 18px 20px;
+        margin-bottom: 18px;
       }
-      .score-total { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; color: var(--blue); }
-      .score-label { color: var(--muted); font-size: 11px; margin: 4px 0 10px; }
-      .score-parts { color: var(--text); font-size: 12px; line-height: 1.6; }
-      .actions { display: flex; gap: 8px; padding: 10px 16px 16px; }
+      .score::before {
+        content: '';
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(88, 166, 255, .5), rgba(163, 113, 247, .35), transparent);
+      }
+      .score-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      .score-title { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+      .score-total {
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 46px;
+        font-weight: 700;
+        line-height: 1.05;
+        letter-spacing: -1.5px;
+        background: linear-gradient(135deg, #7cb8ff, #a371f7);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .score.is-zero .score-total { background: none; color: var(--red); }
+      .score-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; font-size: 11px; color: var(--faint); }
+      .score-meta span { display: inline-flex; align-items: center; gap: 6px; }
+      .score-meta span + span::before { content: ''; width: 3px; height: 3px; border-radius: 50%; background: #3b4552; }
+      .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; margin-top: 16px; }
+      .tile { padding: 10px 12px 11px; border: 1px solid var(--border); border-radius: var(--r-md); background: rgba(13, 17, 23, .45); }
+      .tile-label { font-size: 11px; color: var(--muted); }
+      .tile-value { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; margin-top: 2px; }
+      .tile-track { height: 3px; border-radius: 2px; background: #232c38; margin-top: 9px; overflow: hidden; }
+      .tile-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--blue), var(--violet)); transition: width .5s ease; }
+      .tile.zero .tile-value { color: var(--red); }
+      .tile.zero .tile-fill { background: var(--red); }
+      .zero-note { margin-top: 12px; font-size: 11.5px; color: #ff8b84; }
+
+      /* 结果卡 */
+      .card {
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        margin-bottom: 16px;
+        overflow: hidden;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(34, 42, 54, .5), transparent);
+      }
+      .card-head h2 { font-size: 12.5px; font-weight: 600; }
+      .card-head .summary { margin-left: auto; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid rgba(38, 46, 58, .7); white-space: nowrap; }
+      th {
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: .04em;
+        color: var(--muted);
+        background: #171d26;
+        border-bottom: 1px solid var(--border);
+      }
+      th.r, td.r { text-align: right; }
+      tbody tr:last-child td { border-bottom: none; }
+      tbody tr { transition: background var(--ease); }
+      tbody tr:hover td { background: rgba(88, 166, 255, .05); }
+      tbody tr.is-running td { background: rgba(88, 166, 255, .07); }
+      tbody tr.is-running td:first-child { box-shadow: inset 2px 0 0 var(--blue); }
+      td.head { font-weight: 550; }
+      td.note { width: 99%; white-space: normal; color: var(--faint); font-size: 11.5px; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        padding: 2px 9px 2px 7px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+      }
+      .badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+      .badge.ok { color: var(--green); background: rgba(63, 185, 80, .12); border-color: rgba(63, 185, 80, .28); }
+      .badge.err { color: #ff8b84; background: rgba(248, 81, 73, .12); border-color: rgba(248, 81, 73, .3); }
+      .badge.skip { color: var(--yellow); background: rgba(210, 153, 34, .12); border-color: rgba(210, 153, 34, .3); }
+      .badge.run { color: var(--blue); background: rgba(88, 166, 255, .12); border-color: rgba(88, 166, 255, .3); }
+      .badge.run i { animation: pulse 1.4s ease-in-out infinite; }
+      .badge.idle { color: var(--faint); background: rgba(139, 148, 158, .1); border-color: var(--border); }
+
+      /* ── 底栏 ───────────────────────────────── */
+      .actions {
+        flex: none;
+        display: flex;
+        gap: 8px;
+        padding: 12px 18px;
+        border-top: 1px solid var(--border);
+        background: rgba(13, 17, 23, .72);
+        backdrop-filter: blur(12px);
+      }
+
       .toast {
-        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        padding: 8px 16px; background: var(--bg3); border: 1px solid var(--border);
-        border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none;
+        position: fixed;
+        bottom: 68px;
+        left: 50%;
+        padding: 9px 18px;
+        font-size: 12.5px;
+        background: var(--surface-3);
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        box-shadow: var(--shadow);
+        opacity: 0;
+        transform: translate(-50%, 8px);
+        transition: opacity var(--ease), transform var(--ease);
+        pointer-events: none;
       }
-      .toast.show { opacity: 1; }
+      .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+      @media (max-width: 720px) {
+        .toolbar { grid-template-columns: 1fr 1fr; }
+        .score-total { font-size: 38px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      }
     </style>
   </head>
   <body>
     <header>
       <h1 id="title">压测控制台</h1>
-      <span class="meta" id="suite">sailfish-bench-v4</span>
+      <span class="tag" id="suite">sailfish-bench-v4</span>
+      <span class="spacer"></span>
+      <span class="state" id="state" data-state="idle" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><em id="stateText" style="font-style: normal">待命</em></span>
     </header>
-    <section class="controls">
+
+    <section class="toolbar">
       <label>
         <span id="lblProfile">模型</span>
         <select id="profile"></select>
@@ -111,105 +353,139 @@
       <button class="primary" id="startBtn">开始</button>
       <button class="danger" id="stopBtn" disabled>停止</button>
       <div class="hint" id="hint"></div>
+      <div class="progress" id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="bar" id="progressBar"></div></div>
     </section>
+
     <main>
-      <div class="empty" id="empty"></div>
+      <div class="empty" id="empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M12 21a9 9 0 1 1 9-9" />
+          <path d="M12 12l5-4" />
+          <path d="M12 3v2M4.2 7.2l1.7 1M3 15h2" />
+        </svg>
+        <span id="emptyText"></span>
+      </div>
       <div id="results" hidden></div>
     </main>
+
     <div class="actions">
       <button id="copyBtn" disabled>复制报告</button>
       <button id="saveBtn" disabled>保存报告</button>
     </div>
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
     <script>
       const I18N = {
         'zh-CN': {
           title: '压测控制台',
           profile: '模型',
-          rungs: '要测的字数（不填用默认）',
-          start: '开始',
+          rungs: '上下文字数（留空用默认档位）',
+          start: '开始测试',
           stop: '停止',
-          hint: '同一套冻住的中文题，一次打完三块。每一档都写一段，表上看首字和写速。跑完给一个压测分，同一版本下分高就更快更好。跳过和失败按零。',
-          empty: '选一套模型，点开始。跑完看压测分，再对三块表。',
+          hint: '固定题目，一次跑完三项：上下文长度、工具调用、三路并发。每个长度档都让模型写完同一段正文，因此首字延迟和输出速度都在同一行里看。跑完给出压测分，同版本题目下分数越高越快。跳过与失败计零分。',
+          empty: '选择模型后点「开始测试」。跑完先看压测分，再逐项对照下面三张表。',
           copy: '复制报告',
           save: '保存报告',
           copied: '已复制',
           saved: '已保存',
-          noProfile: '请先在设置里配一套模型',
-          context: '上下文长短',
-          output: '输出速度',
-          tools: '工具往返',
+          noProfile: '请先在设置中添加模型配置',
+          stateIdle: '空闲',
+          stateRunning: '测试中',
+          stateDone: '已完成',
+          context: '上下文长度',
+          tools: '工具调用',
           concurrency: '三路并发',
-          scoreLabel: '压测分 · {v}',
-          scoreParts: '上下文 {c} · 写速 {o} · 工具 {t} · 并发 {p}',
-          colChars: '字数',
-          colIn: '接口输入',
-          colStatus: '结果',
-          colTtft: '首字',
-          colTotal: '整轮',
-          colSpeed: '每秒字',
-          colOut: '写出',
+          scoreTitle: '压测分',
+          axisContext: '上下文',
+          axisWrite: '输出速度',
+          axisTools: '工具调用',
+          axisConcurrency: '并发',
+          zeroNote: '有一项为零，总分即为零——请看下方哪一行未通过。',
+          metaWindow: '窗口 {v}',
+          metaTemp: '温度 {v}',
+          metaElapsed: '耗时 {v}',
+          summary: '通过 {ok}/{total}',
+          colChars: '上下文字数',
+          colIn: '输入 tokens',
+          colStatus: '状态',
+          colTtft: '首字延迟',
+          colTotal: '总耗时',
+          colSpeed: '字/秒',
+          colOut: '输出字数',
           colNote: '备注',
-          colLane: '路',
-          colStep: '段',
-          runningContext: '正在打 {n} 字…',
-          runningOutput: '正在打输出速度…',
-          runningTools: '正在打工具往返…',
-          runningConcurrency: '正在打三路并发…',
-          skipped: '超过窗口，跳过',
+          colLane: '并发路',
+          colStep: '阶段',
+          passed: '通过',
+          pending: '排队中',
+          running: '测试中',
+          skipped: '超出窗口，跳过',
+          skippedNoTool: '未执行（上一步没有调用工具）',
           aborted: '已停止',
-          rateLimited: '限流',
+          rateLimited: '触发限流',
           truncated: '输出被截断',
-          streamCut: '流被掐断',
-          emptyOutput: '没有写出字',
-          noTool: '没有吐出工具调用',
-          toolCall: '叫工具',
-          toolAfter: '收回来',
+          streamCut: '流式中断',
+          emptyOutput: '无输出',
+          noTool: '未发起工具调用',
+          toolCall: '发起调用',
+          toolAfter: '处理返回结果',
         },
         'en-US': {
           title: 'Benchmark Console',
           profile: 'Model',
-          rungs: 'Character counts (leave empty for defaults)',
+          rungs: 'Context sizes in characters (empty for defaults)',
           start: 'Start',
           stop: 'Stop',
-          hint: 'Same frozen Chinese suite. One run of three blocks. Each length rung writes a passage so you see TTFT and write speed on the same row. Higher index is better on the same suite version. Skips and failures count as zero.',
-          empty: 'Pick a model and start. Read the index first, then the three tables.',
+          hint: 'A fixed suite, three sections in one run: context length, tool calling, and three concurrent lanes. Every length step writes the same passage, so time to first token and output speed sit on the same row. The index at the end is comparable across models on the same suite version; skipped and failed items score zero.',
+          empty: 'Pick a model and press Start. Read the index first, then compare the three tables below.',
           copy: 'Copy report',
           save: 'Save report',
           copied: 'Copied',
           saved: 'Saved',
           noProfile: 'Add a model profile in Settings first',
+          stateIdle: 'Idle',
+          stateRunning: 'Running',
+          stateDone: 'Done',
           context: 'Context length',
-          output: 'Output speed',
-          tools: 'Tool round-trip',
-          concurrency: '3-way concurrency',
-          scoreLabel: 'Index · {v}',
-          scoreParts: 'Context {c} · Write {o} · Tools {t} · Concurrency {p}',
-          colChars: 'Chars',
-          colIn: 'Prompt tokens',
-          colStatus: 'Result',
-          colTtft: 'TTFT',
-          colTotal: 'Total',
+          tools: 'Tool calling',
+          concurrency: 'Concurrency (3 lanes)',
+          scoreTitle: 'Index',
+          axisContext: 'Context',
+          axisWrite: 'Output speed',
+          axisTools: 'Tool calling',
+          axisConcurrency: 'Concurrency',
+          zeroNote: 'One axis scored zero, so the index is zero — check which row failed below.',
+          metaWindow: 'Window {v}',
+          metaTemp: 'Temp {v}',
+          metaElapsed: 'Elapsed {v}',
+          summary: '{ok}/{total} passed',
+          colChars: 'Context chars',
+          colIn: 'Input tokens',
+          colStatus: 'Status',
+          colTtft: 'First token',
+          colTotal: 'Total time',
           colSpeed: 'Chars/s',
-          colOut: 'Wrote',
+          colOut: 'Output chars',
           colNote: 'Note',
           colLane: 'Lane',
-          colStep: 'Step',
-          runningContext: 'Running {n} chars…',
-          runningOutput: 'Running output…',
-          runningTools: 'Running tools…',
-          runningConcurrency: 'Running concurrency…',
+          colStep: 'Stage',
+          passed: 'Pass',
+          pending: 'Queued',
+          running: 'Running',
           skipped: 'Skipped (over window)',
+          skippedNoTool: 'Not run (no tool call before it)',
           aborted: 'Stopped',
           rateLimited: 'Rate limited',
-          truncated: 'Truncated',
-          streamCut: 'Stream cut',
-          emptyOutput: 'Empty output',
-          noTool: 'No tool call',
-          toolCall: 'Call',
-          toolAfter: 'After',
+          truncated: 'Output truncated',
+          streamCut: 'Stream interrupted',
+          emptyOutput: 'No output',
+          noTool: 'No tool call issued',
+          toolCall: 'Issue call',
+          toolAfter: 'Handle result',
         }
       }
+
+      /** 分项条按「跑到这个数算满」画，1000 是及格线，落在一半处。 */
+      const TILE_FULL_SCORE = 2000
 
       function escapeHtml(text) {
         return String(text ?? '')
@@ -239,9 +515,10 @@
         document.getElementById('startBtn').textContent = t.start
         document.getElementById('stopBtn').textContent = t.stop
         document.getElementById('hint').textContent = t.hint
-        document.getElementById('empty').textContent = t.empty
+        document.getElementById('emptyText').textContent = t.empty
         document.getElementById('copyBtn').textContent = t.copy
         document.getElementById('saveBtn').textContent = t.save
+        document.getElementById('stateText').textContent = t.stateIdle
       }
 
       function parseRungs(raw) {
@@ -255,6 +532,22 @@
         return ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : Math.round(ms) + 'ms'
       }
 
+      function fmtDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) return '—'
+        if (ms < 60_000) return (ms / 1000).toFixed(1) + 's'
+        return Math.floor(ms / 60_000) + 'm ' + Math.round((ms % 60_000) / 1000) + 's'
+      }
+
+      function fmtNum(value) {
+        if (value == null) return '—'
+        return Number.isFinite(value) ? value.toLocaleString('en-US') : String(value)
+      }
+
+      /** 还没打的那行没有估值，别把占位的 0 当成真读数。 */
+      function promptTokens(rung) {
+        return fmtNum(rung.actualPromptTokens ?? (rung.estimatedTokens || null))
+      }
+
       function allItems(rep) {
         if (!rep) return []
         const items = [...(rep.rungs || [])]
@@ -263,15 +556,13 @@
         return items
       }
 
-      function statusLabel(rung, section) {
-        if (rung.status === 'running') {
-          if (section === 'output') return t.runningOutput
-          if (section === 'tools') return t.runningTools
-          if (section === 'concurrency') return t.runningConcurrency
-          return t.runningContext.replace('{n}', String(rung.targetChars))
+      function statusLabel(rung) {
+        if (rung.status === 'pending') return t.pending
+        if (rung.status === 'running') return t.running
+        if (rung.status === 'ok') return t.passed
+        if (rung.status === 'skipped') {
+          return rung.skipReason === 'no_tool_call' ? t.skippedNoTool : t.skipped
         }
-        if (rung.status === 'ok') return 'ok'
-        if (rung.status === 'skipped') return t.skipped
         if (rung.status === 'aborted') return t.aborted
         if (rung.rateLimited) return t.rateLimited
         if (rung.error === 'empty_output') return t.emptyOutput
@@ -281,28 +572,105 @@
         return rung.error || 'error'
       }
 
-      function statusClass(rung) {
+      function statusKind(rung) {
         if (rung.status === 'ok') return 'ok'
+        if (rung.status === 'running') return 'run'
         if (rung.status === 'skipped' || rung.status === 'aborted') return 'skip'
         if (rung.status === 'error') return 'err'
-        return ''
+        return 'idle'
       }
 
+      function badge(rung) {
+        return `<span class="badge ${statusKind(rung)}"><i></i>${escapeHtml(statusLabel(rung))}</span>`
+      }
+
+      /** 备注只留反常的：正常收尾和 200 不占位置，异常才跳出来。 */
       function note(rung) {
         const bits = []
         if (rung.toolName) bits.push(rung.toolName)
-        if (rung.finishReason) bits.push(rung.finishReason)
-        if (rung.httpStatus) bits.push('HTTP ' + rung.httpStatus)
-        if (rung.skipReason) bits.push(rung.skipReason)
+        if (rung.finishReason && rung.finishReason !== 'stop' && rung.finishReason !== 'tool_calls') {
+          bits.push('finish_reason: ' + rung.finishReason)
+        }
+        if (rung.httpStatus && rung.httpStatus !== 200) bits.push('HTTP ' + rung.httpStatus)
         return bits.join(' · ') || '—'
       }
 
-      function table(headers, rows) {
-        return `<table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`
+      /**
+       * cells: [{ v, cls }] 一律当纯文本转义；只有 { html } 才原样放进去。
+       * 转义收在这里，新加一列不会漏成注入点。
+       */
+      function row(rung, cells) {
+        const tds = cells.map(c => {
+          const inner = c.html != null ? c.html : escapeHtml(c.v)
+          return `<td class="${c.cls || ''}">${inner}</td>`
+        }).join('')
+        return `<tr class="${rung.status === 'running' ? 'is-running' : ''}">${tds}</tr>`
       }
 
-      function row(cells, cls) {
-        return `<tr>${cells.map((c, i) => `<td${i === 2 ? ` class="${cls}"` : ''}>${c}</td>`).join('')}</tr>`
+      function card(title, items, headers, rows) {
+        const done = items.filter(r => r.status === 'ok').length
+        const summary = items.length
+          ? `<span class="summary">${escapeHtml(t.summary.replace('{ok}', String(done)).replace('{total}', String(items.length)))}</span>`
+          : ''
+        const head = headers.map(h => `<th class="${h.cls || ''}">${escapeHtml(h.label)}</th>`).join('')
+        return `<section class="card">
+          <div class="card-head"><h2>${escapeHtml(title)}</h2>${summary}</div>
+          <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+        </section>`
+      }
+
+      function tile(label, raw) {
+        const value = Number.isFinite(raw) ? raw : 0
+        const width = Math.max(0, Math.min(100, (value / TILE_FULL_SCORE) * 100))
+        return `<div class="tile ${value === 0 ? 'zero' : ''}">
+          <div class="tile-label">${escapeHtml(label)}</div>
+          <div class="tile-value">${escapeHtml(value)}</div>
+          <div class="tile-track"><div class="tile-fill" style="width:${width}%"></div></div>
+        </div>`
+      }
+
+      function scoreCard(rep) {
+        if (!rep.finishedAt || !rep.score) return ''
+        const s = rep.score
+        const meta = [
+          rep.suiteVersion,
+          rep.profile ? `${rep.profile.name || rep.profile.model} · ${rep.profile.model}` : '',
+          t.metaWindow.replace('{v}', fmtNum(rep.contextLength)),
+          t.metaTemp.replace('{v}', fmtNum(rep.temperature)),
+          t.metaElapsed.replace('{v}', fmtDuration(rep.finishedAt - rep.startedAt)),
+        ].filter(Boolean)
+        return `<section class="score ${s.total === 0 ? 'is-zero' : ''}">
+          <div class="score-head">
+            <span class="score-total">${escapeHtml(s.total)}</span>
+            <span class="score-title">${escapeHtml(t.scoreTitle)}</span>
+          </div>
+          <div class="score-meta">${meta.map(m => `<span>${escapeHtml(m)}</span>`).join('')}</div>
+          <div class="tiles">
+            ${tile(t.axisContext, s.context)}
+            ${tile(t.axisWrite, s.output)}
+            ${tile(t.axisTools, s.tools)}
+            ${tile(t.axisConcurrency, s.concurrency)}
+          </div>
+          ${s.total === 0 ? `<div class="zero-note">${escapeHtml(t.zeroNote)}</div>` : ''}
+        </section>`
+      }
+
+      function renderState(rep, items) {
+        const el = document.getElementById('state')
+        const bar = document.getElementById('progressBar')
+        const wrap = document.getElementById('progress')
+        const busy = items.some(r => r.status === 'running')
+        // 「在跑」优先于「跑完」：刚点开始时手上还是上一份带完成时间的报告
+        const state = busy || running ? 'running' : rep?.finishedAt ? 'done' : 'idle'
+        el.dataset.state = state
+        document.getElementById('stateText').textContent =
+          state === 'running' ? t.stateRunning : state === 'done' ? t.stateDone : t.stateIdle
+
+        const settled = items.filter(r => r.status !== 'pending' && r.status !== 'running').length
+        const pct = items.length ? Math.round((settled / items.length) * 100) : 0
+        bar.style.width = pct + '%'
+        wrap.setAttribute('aria-valuenow', String(pct))
+        wrap.classList.toggle('active', state === 'running')
       }
 
       function render(next) {
@@ -310,6 +678,7 @@
         const empty = document.getElementById('empty')
         const results = document.getElementById('results')
         const items = allItems(report)
+        renderState(report, items)
         if (!report || items.length === 0) {
           empty.hidden = false
           results.hidden = true
@@ -318,65 +687,61 @@
         empty.hidden = true
         results.hidden = false
 
-        const contextRows = (report.rungs || []).map(r => row([
-          escapeHtml(r.targetChars) + ' 字',
-          escapeHtml(r.actualPromptTokens ?? r.estimatedTokens ?? '—'),
-          escapeHtml(statusLabel(r, 'context')),
-          escapeHtml(fmtMs(r.ttftMs)),
-          escapeHtml(fmtMs(r.totalMs)),
-          escapeHtml(r.outputChars != null ? r.outputChars : '—'),
-          escapeHtml(r.outputCharsPerSec != null ? r.outputCharsPerSec : '—'),
-          escapeHtml(note(r)),
-        ], statusClass(r))).join('')
+        const rungs = report.rungs || []
+        const contextRows = rungs.map(r => row(r, [
+          { v: fmtNum(r.targetChars), cls: 'head num' },
+          { v: promptTokens(r), cls: 'r num' },
+          { html: badge(r) },
+          { v: fmtMs(r.ttftMs), cls: 'r num' },
+          { v: fmtMs(r.totalMs), cls: 'r num' },
+          { v: fmtNum(r.outputChars), cls: 'r num' },
+          { v: fmtNum(r.outputCharsPerSec), cls: 'r num' },
+          { v: note(r), cls: 'note' },
+        ])).join('')
 
-        const toolRows = report.tools ? [
-          row([
-            t.toolCall,
-            escapeHtml(report.tools.call.actualPromptTokens ?? report.tools.call.estimatedTokens ?? '—'),
-            escapeHtml(statusLabel(report.tools.call, 'tools')),
-            escapeHtml(fmtMs(report.tools.call.ttftMs)),
-            escapeHtml(fmtMs(report.tools.call.totalMs)),
-            escapeHtml(note(report.tools.call)),
-          ], statusClass(report.tools.call)),
-          row([
-            t.toolAfter,
-            escapeHtml(report.tools.after.actualPromptTokens ?? report.tools.after.estimatedTokens ?? '—'),
-            escapeHtml(statusLabel(report.tools.after, 'tools')),
-            escapeHtml(fmtMs(report.tools.after.ttftMs)),
-            escapeHtml(fmtMs(report.tools.after.totalMs)),
-            escapeHtml(note(report.tools.after)),
-          ], statusClass(report.tools.after)),
-        ].join('') : ''
+        const toolTurns = report.tools ? [report.tools.call, report.tools.after] : []
+        const toolRows = toolTurns.map((turn, i) => row(turn, [
+          { v: i === 0 ? t.toolCall : t.toolAfter, cls: 'head' },
+          { v: promptTokens(turn), cls: 'r num' },
+          { html: badge(turn) },
+          { v: fmtMs(turn.ttftMs), cls: 'r num' },
+          { v: fmtMs(turn.totalMs), cls: 'r num' },
+          { v: note(turn), cls: 'note' },
+        ])).join('')
 
-        const concRows = (report.concurrency?.lanes || []).map((r, i) => row([
-          String(i + 1),
-          escapeHtml(r.actualPromptTokens ?? r.estimatedTokens ?? '—'),
-          escapeHtml(statusLabel(r, 'concurrency')),
-          escapeHtml(fmtMs(r.ttftMs)),
-          escapeHtml(fmtMs(r.totalMs)),
-          escapeHtml(note(r)),
-        ], statusClass(r))).join('')
+        const lanes = report.concurrency?.lanes || []
+        const concRows = lanes.map((r, i) => row(r, [
+          { v: i + 1, cls: 'head num' },
+          { v: promptTokens(r), cls: 'r num' },
+          { html: badge(r) },
+          { v: fmtMs(r.ttftMs), cls: 'r num' },
+          { v: fmtMs(r.totalMs), cls: 'r num' },
+          { v: note(r), cls: 'note' },
+        ])).join('')
 
-        const scoreCard = report.finishedAt && report.score
-          ? `<div class="score">
-              <div class="score-total">${escapeHtml(report.score.total)}</div>
-              <div class="score-label">${escapeHtml(t.scoreLabel.replace('{v}', report.suiteVersion || ''))}</div>
-              <div class="score-parts">${escapeHtml(t.scoreParts
-                .replace('{c}', String(report.score.context))
-                .replace('{o}', String(report.score.output))
-                .replace('{t}', String(report.score.tools))
-                .replace('{p}', String(report.score.concurrency)))}</div>
-            </div>`
-          : ''
+        const turnHeaders = (first) => [
+          { label: first },
+          { label: t.colIn, cls: 'r' },
+          { label: t.colStatus },
+          { label: t.colTtft, cls: 'r' },
+          { label: t.colTotal, cls: 'r' },
+          { label: t.colNote },
+        ]
 
         results.innerHTML = [
-          scoreCard,
-          `<h2>${escapeHtml(t.context)}</h2>`,
-          table([t.colChars, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colOut, t.colSpeed, t.colNote], contextRows),
-          `<h2>${escapeHtml(t.tools)}</h2>`,
-          table([t.colStep, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], toolRows),
-          `<h2>${escapeHtml(t.concurrency)}</h2>`,
-          table([t.colLane, t.colIn, t.colStatus, t.colTtft, t.colTotal, t.colNote], concRows),
+          scoreCard(report),
+          card(t.context, rungs, [
+            { label: t.colChars },
+            { label: t.colIn, cls: 'r' },
+            { label: t.colStatus },
+            { label: t.colTtft, cls: 'r' },
+            { label: t.colTotal, cls: 'r' },
+            { label: t.colOut, cls: 'r' },
+            { label: t.colSpeed, cls: 'r' },
+            { label: t.colNote },
+          ], contextRows),
+          card(t.tools, toolTurns, turnHeaders(t.colStep), toolRows),
+          card(t.concurrency, lanes, turnHeaders(t.colLane), concRows),
         ].join('')
 
         const hasDone = items.some(r => r.status !== 'pending' && r.status !== 'running')
@@ -390,6 +755,7 @@
         document.getElementById('stopBtn').disabled = !on
         document.getElementById('profile').disabled = on
         document.getElementById('rungs').disabled = on
+        renderState(report, allItems(report))
       }
 
       async function init() {
