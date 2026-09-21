@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AiProfile } from '@shared/types'
 import { LlmBenchRunner, type BenchAiClient } from '../runner'
-import { BENCH_CONCURRENCY, BENCH_SUITE_VERSION, BENCH_TEMPERATURE } from '../types'
+import { BENCH_CONCURRENCY, BENCH_SUITE_VERSION, BENCH_TEMPERATURE, DEFAULT_BENCH_RUNGS } from '../types'
 import { BENCH_OUTPUT_PASSAGE, BENCH_TOOLS } from '../suite'
 
 function fakeProfile(over: Partial<AiProfile> = {}): AiProfile {
@@ -239,6 +239,28 @@ describe('llm-bench runner', () => {
     expect(report.shotsPerRung).toBeLessThan(3)
     // 被停掉的那一遍不算数，但上一遍跑出来的那一发要照常摆在表上
     expect(report.concurrency?.lanes.every(l => l.status === 'ok' && l.shots?.length)).toBe(true)
+  })
+
+  it('指定了档位却一个合法的都没有，直接报错，不悄悄跑默认档', async () => {
+    const runner = new LlmBenchRunner({
+      ai: smartAi(),
+      listProfiles: () => [fakeProfile()],
+      getActiveProfileId: () => 'p1',
+    })
+    await expect(runner.start({ profileId: 'p1', rungs: [Number.NaN, -3, 0] })).rejects.toThrow('bench_invalid_rungs')
+  })
+
+  it('不带档位就跑冻住的那整套，报告记成标准档位', async () => {
+    const runner = new LlmBenchRunner({
+      ai: smartAi(),
+      listProfiles: () => [fakeProfile()],
+      getActiveProfileId: () => 'p1',
+    })
+    const report = await runner.start({ profileId: 'p1', shots: 1 })
+    expect(report.standardLadder).toBe(true)
+    expect(report.rungs.map(r => r.targetChars)).toEqual([...DEFAULT_BENCH_RUNGS])
+    const custom = await runner.start({ profileId: 'p1', rungs: [4000], shots: 1 })
+    expect(custom.standardLadder).toBe(false)
   })
 
   it('只打一发时，行为跟从前一模一样', async () => {

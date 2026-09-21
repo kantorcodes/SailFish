@@ -9,8 +9,16 @@ import {
 export interface ResolvedLadder {
   contextLength: number
   inputLimit: number
-  /** 按字数排好，含超窗口要跳过的档。 */
+  /** 按字数排好，含要跳过的档。 */
   rungs: Array<{ targetChars: number; estimatedTokens: number; skipReason?: string }>
+  /** 跑的是不是冻住的那整套档位。不是的话分数只能跟同样档位的报告比。 */
+  standard: boolean
+}
+
+/** 跑的档位是不是冻住的那一整套（超窗口被跳过的仍算标准，那是这款模型的实情）。 */
+function isStandardLadder(targets: number[]): boolean {
+  const want = [...DEFAULT_BENCH_RUNGS].sort((a, b) => a - b)
+  return targets.length === want.length && targets.every((n, i) => n === want[i])
 }
 
 function uniquePositiveInts(values: number[]): number[] {
@@ -36,6 +44,12 @@ export function resolveBenchLadder(
 
   const rungs = requested.map((targetChars) => {
     const built = buildBenchRequest(targetChars)
+    // 底稿自带系统说明、用户话、指令和整份工具清单，太短的档凑不出那个字数。
+    // 判法是「真发出去的字数对不上表上写的」——比估一个底稿长度去卡更准，
+    // 底稿长度本身还随档位位数浮动，估出来的界线会在边界上漏掉几个档
+    if (built.charCount !== targetChars) {
+      return { targetChars, estimatedTokens: built.estimatedTokens, skipReason: 'below_base' }
+    }
     return built.estimatedTokens > budget.inputLimit
       ? { targetChars, estimatedTokens: built.estimatedTokens, skipReason: 'exceeds_window' }
       : { targetChars, estimatedTokens: built.estimatedTokens }
@@ -44,5 +58,6 @@ export function resolveBenchLadder(
     contextLength: budget.contextLength,
     inputLimit: budget.inputLimit,
     rungs,
+    standard: isStandardLadder(requested),
   }
 }

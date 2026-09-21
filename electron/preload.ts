@@ -3579,6 +3579,7 @@ const electronAPI = {
   llmBenchListProfiles: () => ipcRenderer.invoke('llmBench:listProfiles'),
   llmBenchGetActiveProfileId: () => ipcRenderer.invoke('llmBench:getActiveProfileId'),
   llmBenchGetLocale: () => ipcRenderer.invoke('llmBench:getLocale'),
+  llmBenchGetSuiteInfo: () => ipcRenderer.invoke('llmBench:getSuiteInfo'),
   llmBenchStart: (input: { profileId: string; rungs?: number[]; shots?: number }) => ipcRenderer.invoke('llmBench:start', input),
   llmBenchStop: () => ipcRenderer.invoke('llmBench:stop'),
   llmBenchIsRunning: () => ipcRenderer.invoke('llmBench:isRunning'),

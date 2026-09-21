@@ -110,6 +110,8 @@ export interface BenchReport {
   passageChars: number
   /** 这次每档打了几发。两份报告对着看，先确认口径一样。 */
   shotsPerRung: number
+  /** 跑的是不是冻住的那整套档位。不是的话这份分数只能跟同样档位的报告比。 */
+  standardLadder: boolean
   rungs: BenchRungResult[]
   tools?: BenchToolResult
   concurrency?: BenchConcurrencyResult

@@ -7,8 +7,11 @@ import type { ConfigService } from '../config.service'
 import { LlmBenchRunner } from './runner'
 import { BENCH_OUTPUT_PASSAGE } from './suite'
 import {
+  BENCH_DEFAULT_SHOTS,
+  BENCH_SHOT_CHOICES,
   BENCH_SUITE_VERSION,
   BENCH_TEMPERATURE,
+  DEFAULT_BENCH_RUNGS,
   type BenchProgress,
   type BenchReport,
   type StartBenchInput,
@@ -24,6 +27,7 @@ const IPC_CHANNELS = [
   'llmBench:listProfiles',
   'llmBench:getActiveProfileId',
   'llmBench:getLocale',
+  'llmBench:getSuiteInfo',
   'llmBench:start',
   'llmBench:stop',
   'llmBench:isRunning',
@@ -83,6 +87,13 @@ export class LlmBenchService {
     ipcMain.handle('llmBench:listProfiles', () => this.runner?.listProfiles() ?? [])
     ipcMain.handle('llmBench:getActiveProfileId', () => this.runner?.getActiveProfileId() ?? '')
     ipcMain.handle('llmBench:getLocale', () => getLocale())
+    // 题里冻住的那几样（版本、长度档、可选发数）由这里给，压测窗不另抄一份
+    ipcMain.handle('llmBench:getSuiteInfo', () => ({
+      suiteVersion: BENCH_SUITE_VERSION,
+      rungs: [...DEFAULT_BENCH_RUNGS],
+      shotChoices: [...BENCH_SHOT_CHOICES],
+      defaultShots: BENCH_DEFAULT_SHOTS,
+    }))
     ipcMain.handle('llmBench:isRunning', () => this.runner?.isRunning() ?? false)
     ipcMain.handle('llmBench:getReport', () => this.latest)
 
@@ -101,6 +112,7 @@ export class LlmBenchService {
           temperature: BENCH_TEMPERATURE,
           passageChars: BENCH_OUTPUT_PASSAGE.length,
           shotsPerRung: 0,
+          standardLadder: false,
           rungs: [{
             targetChars: 0,
             actualChars: 0,

@@ -263,6 +263,11 @@ export class LlmBenchRunner {
       throw new Error('bench_profile_not_found')
     }
 
+    // 指定了档位却一个合法的都没有：既不悄悄跑默认档（跑的跟说的不是一回事），
+    // 也不出一份零档位的空报告
+    if (input.rungs?.length && !input.rungs.some(n => Number.isFinite(n) && Math.floor(n) > 0)) {
+      throw new Error('bench_invalid_rungs')
+    }
     const ladder = resolveBenchLadder(profile, input.rungs)
     const probe = buildBenchRequest(BENCH_PROBE_CHARS, 'concurrency')
     const skipProbe = probe.estimatedTokens > ladder.inputLimit
@@ -277,6 +282,7 @@ export class LlmBenchRunner {
       temperature: BENCH_TEMPERATURE,
       passageChars: BENCH_OUTPUT_PASSAGE.length,
       shotsPerRung: shots,
+      standardLadder: ladder.standard,
       rungs: ladder.rungs.map((item) => {
         if (item.skipReason) {
           return { ...emptyRung(item.targetChars, item.estimatedTokens), status: 'skipped', skipReason: item.skipReason }

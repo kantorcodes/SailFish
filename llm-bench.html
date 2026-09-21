@@ -112,6 +112,14 @@
       }
       label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
       label.shots { min-width: 96px; }
+      /* 长度档是题的一部分，只给看不给改；窄窗要能折行，别把最大那档裁掉 */
+      label.ladder output {
+        font-size: 12.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        padding: 7px 0;
+        line-height: 1.35;
+      }
       label > span { font-size: 11px; color: var(--muted); }
       select, input {
         width: 100%;
@@ -240,6 +248,8 @@
       .tile.zero .tile-value { color: var(--red); }
       .tile.zero .tile-fill { background: var(--red); }
       .zero-note { margin-top: 12px; font-size: 11.5px; color: #ff8b84; }
+      /* 可比性提醒不是报错，别跟「某项为零」共用错误红 */
+      .caveat { margin-top: 12px; font-size: 11.5px; color: var(--yellow); }
 
       /* 结果卡 */
       .card {
@@ -338,7 +348,7 @@
   <body>
     <header>
       <h1 id="title">压测控制台</h1>
-      <span class="tag" id="suite">sailfish-bench-v6</span>
+      <span class="tag" id="suite"></span>
       <span class="spacer"></span>
       <span class="state" id="state" data-state="idle" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><em id="stateText" style="font-style: normal">待命</em></span>
     </header>
@@ -348,9 +358,9 @@
         <span id="lblProfile">模型</span>
         <select id="profile"></select>
       </label>
-      <label>
-        <span id="lblRungs">要测的字数（不填用默认）</span>
-        <input id="rungs" placeholder="4000, 16000, 32000, 64000, 128000" />
+      <label class="ladder">
+        <span id="lblRungs">长度档（固定）</span>
+        <output id="ladder"></output>
       </label>
       <label class="shots">
         <span id="lblShots">每档打几发</span>
@@ -385,12 +395,14 @@
         'zh-CN': {
           title: '压测控制台',
           profile: '模型',
-          rungs: '上下文字数（留空用默认档位）',
+          rungs: '长度档（题里固定）',
+          ladderValue: '{v} 字',
+          ladderNote: '非标准档位，只能跟同样档位的报告比',
           shots: '每档打几发',
           shotOption: '{v} 发',
           start: '开始测试',
           stop: '停止',
-          hint: '固定题目，一次跑完三项：上下文长度、工具调用、三路并发。每个长度档都让模型写完同一段正文，因此首字延迟和输出速度都在同一行里看。整套题重复打几遍，每档取首字延迟居中的那一发；任一发失败即该档不通过。跑完给出压测分，同版本题目下分数越高越快。',
+          hint: '固定题目，一次跑完三项：上下文长度、工具调用、三路并发。长度档是题的一部分，不可调；超出模型窗口的档会跳过并按零计入分数。每个长度档都让模型写完同一段正文，因此首字延迟和输出速度都在同一行里看。整套题重复打几遍，每档取首字延迟居中的那一发；任一发失败即该档不通过。跑完给出压测分，同版本题目下分数越高越快。',
           empty: '选择模型后点「开始测试」。跑完先看压测分，再逐项对照下面三张表。',
           copy: '复制报告',
           save: '保存报告',
@@ -413,6 +425,7 @@
           metaTemp: '温度 {v}',
           metaElapsed: '耗时 {v}',
           metaShots: '每档 {v} 发取中',
+          metaShotsOne: '每档 1 发（未取中位）',
           summary: '通过 {ok}/{total}',
           stateRunningShot: '第 {shot}/{total} 遍',
           colSpread: '首字波动',
@@ -431,6 +444,7 @@
           pending: '排队中',
           running: '测试中',
           skipped: '超出窗口，跳过',
+          skippedBelowBase: '太短，凑不出这个字数，跳过',
           skippedNoTool: '未执行（上一步没有调用工具）',
           aborted: '已停止',
           rateLimited: '触发限流',
@@ -446,12 +460,14 @@
         'en-US': {
           title: 'Benchmark Console',
           profile: 'Model',
-          rungs: 'Context sizes in characters (empty for defaults)',
+          rungs: 'Context sizes (fixed by the suite)',
+          ladderValue: '{v} chars',
+          ladderNote: 'Non-standard sizes — only comparable with reports using the same sizes',
           shots: 'Runs per size',
           shotOption: '{v}×',
           start: 'Start',
           stop: 'Stop',
-          hint: 'A fixed suite, three sections in one run: context length, tool calling, and three concurrent lanes. Every length step writes the same passage, so time to first token and output speed sit on the same row. The whole suite repeats a few times; each size reports the run with the median first-token latency, and any failed run fails that size. The index at the end is comparable across models on the same suite version.',
+          hint: 'A fixed suite, three sections in one run: context length, tool calling, and three concurrent lanes. The context sizes are part of the suite and cannot be changed; sizes beyond the model window are skipped and score zero. Every length step writes the same passage, so time to first token and output speed sit on the same row. The whole suite repeats a few times; each size reports the run with the median first-token latency, and any failed run fails that size. The index at the end is comparable across models on the same suite version.',
           empty: 'Pick a model and press Start. Read the index first, then compare the three tables below.',
           copy: 'Copy report',
           save: 'Save report',
@@ -474,6 +490,7 @@
           metaTemp: 'Temp {v}',
           metaElapsed: 'Elapsed {v}',
           metaShots: 'Median of {v} runs',
+          metaShotsOne: 'Single run per size',
           summary: '{ok}/{total} passed',
           stateRunningShot: 'Pass {shot}/{total}',
           colSpread: 'First-token spread',
@@ -492,6 +509,7 @@
           pending: 'Queued',
           running: 'Running',
           skipped: 'Skipped (over window)',
+          skippedBelowBase: 'Skipped (too short to build that size)',
           skippedNoTool: 'Not run (no tool call before it)',
           aborted: 'Stopped',
           rateLimited: 'Rate limited',
@@ -518,8 +536,8 @@
       }
 
       const api = window.electronAPI
-      /** 与后端 BENCH_SHOT_CHOICES 同一套；默认取中间那个（3 发）。 */
-      const SHOT_CHOICES = [1, 3, 5]
+      /** 题里冻住的那几样由后端给，页面不另抄一份（连默认发数也不兜一个）。 */
+      let suite = { suiteVersion: '', rungs: [], shotChoices: [], defaultShots: 0 }
       let t = I18N['zh-CN']
       let report = null
       let running = false
@@ -548,12 +566,6 @@
         document.getElementById('copyBtn').textContent = t.copy
         document.getElementById('saveBtn').textContent = t.save
         document.getElementById('stateText').textContent = t.stateIdle
-      }
-
-      function parseRungs(raw) {
-        const text = (raw || '').trim()
-        if (!text) return undefined
-        return text.split(/[,，\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0)
       }
 
       function fmtMs(ms) {
@@ -605,7 +617,8 @@
         if (rung.status === 'running') return t.running
         if (rung.status === 'ok') return t.passed
         if (rung.status === 'skipped') {
-          return rung.skipReason === 'no_tool_call' ? t.skippedNoTool : t.skipped
+          if (rung.skipReason === 'no_tool_call') return t.skippedNoTool
+          return rung.skipReason === 'below_base' ? t.skippedBelowBase : t.skipped
         }
         if (rung.status === 'aborted') return t.aborted
         if (rung.rateLimited) return t.rateLimited
@@ -688,7 +701,8 @@
           t.metaWindow.replace('{v}', fmtNum(rep.contextLength)),
           t.metaTemp.replace('{v}', fmtNum(rep.temperature)),
           t.metaElapsed.replace('{v}', fmtDuration(rep.finishedAt - rep.startedAt)),
-          rep.shotsPerRung > 1 ? t.metaShots.replace('{v}', fmtNum(rep.shotsPerRung)) : '',
+          // 一发那份也要写明口径：1 发和 3 发的分数同样不好横着比
+          rep.shotsPerRung > 1 ? t.metaShots.replace('{v}', fmtNum(rep.shotsPerRung)) : t.metaShotsOne,
         ].filter(Boolean)
         return `<section class="score ${s.total === 0 ? 'is-zero' : ''}">
           <div class="score-head">
@@ -702,6 +716,7 @@
             ${tile(t.axisTools, s.tools)}
             ${tile(t.axisConcurrency, s.concurrency)}
           </div>
+          ${rep.standardLadder === false ? `<div class="caveat">${escapeHtml(t.ladderNote)}</div>` : ''}
           ${s.total === 0 ? `<div class="zero-note">${escapeHtml(t.zeroNote)}</div>` : ''}
         </section>`
       }
@@ -826,7 +841,6 @@
         document.getElementById('startBtn').disabled = on
         document.getElementById('stopBtn').disabled = !on
         document.getElementById('profile').disabled = on
-        document.getElementById('rungs').disabled = on
         document.getElementById('shots').disabled = on
         renderState(report, allItems(report))
       }
@@ -834,8 +848,12 @@
       async function init() {
         const locale = await api.llmBenchGetLocale()
         t = I18N[locale] || I18N['zh-CN']
-        document.getElementById('shots').innerHTML = SHOT_CHOICES
-          .map(n => `<option value="${n}"${n === SHOT_CHOICES[1] ? ' selected' : ''}>${n}</option>`)
+        suite = await api.llmBenchGetSuiteInfo()
+        document.getElementById('suite').textContent = suite.suiteVersion
+        document.getElementById('ladder').textContent =
+          t.ladderValue.replace('{v}', suite.rungs.map(fmtNum).join(' / '))
+        document.getElementById('shots').innerHTML = suite.shotChoices
+          .map(n => `<option value="${n}"${n === suite.defaultShots ? ' selected' : ''}>${n}</option>`)
           .join('')
         applyI18n()
 
@@ -872,10 +890,11 @@
         const profileId = document.getElementById('profile').value
         if (!profileId) return toast(t.noProfile)
         currentShot = 1
-        const rungs = parseRungs(document.getElementById('rungs').value)
-        const shots = Number(document.getElementById('shots').value) || SHOT_CHOICES[1]
+        // 长度档不带：档位是题的一部分，由后端那套冻住的档说话。
+        // 发数也一样——没选出数就不传，让后端按它的默认发数来
+        const shots = Number(document.getElementById('shots').value) || undefined
         setRunning(true)
-        const result = await api.llmBenchStart({ profileId, rungs, shots })
+        const result = await api.llmBenchStart({ profileId, shots })
         if (!result?.ok) {
           setRunning(false)
           toast(result?.error || 'error')
