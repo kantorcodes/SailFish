@@ -133,8 +133,9 @@ export async function manageWorkbenchArtifactsTool(
   const renderer = rendererForExtension(filePath)
   if (!renderer) {
     return fail(
-      `暂不支持直接打开该类型文件到面板：${path.basename(filePath)}。` +
-      `现成 PPT 请用 ppt 工具；本工具支持 Markdown、HTML、Word、Excel。`
+      `不支持在面板内预览该类型文件（${path.basename(filePath)}）。` +
+      `目前支持预览：Markdown、HTML、Word（.docx）、Excel（.xlsx）。` +
+      `PPT / PDF / 图片等文件可让用户用系统程序打开，或通过 exec 调用命令行工具处理。`
     )
   }
   if (!fs.existsSync(filePath)) {
