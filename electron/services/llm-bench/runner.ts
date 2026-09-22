@@ -1,5 +1,6 @@
 import type { AiMessage, ChatWithToolsResult, ToolCall, ToolDefinition } from '../ai.service'
 import type { AiProfile } from '@shared/types'
+import { resolveRequestBudget } from '../ai-request-budget'
 import { resolveBenchLadder } from './ladder'
 import { scoreBenchReport } from './score'
 import { BENCH_OUTPUT_PASSAGE, buildBenchRequest, buildToolFollowUp } from './suite'
@@ -8,6 +9,7 @@ import {
   BENCH_DEFAULT_SHOTS,
   BENCH_OUTPUT_MAX_TOKENS,
   BENCH_PROBE_CHARS,
+  BENCH_PROBE_MAX_TOKENS,
   BENCH_SHOT_CHOICES,
   BENCH_SUITE_VERSION,
   BENCH_TEMPERATURE,
@@ -123,6 +125,12 @@ function isOffPassage(answer: string | undefined): boolean | undefined {
   return !got.includes(want) || got.length > want.length * 1.3
 }
 
+/** 写速和「有没有写出字」看正文，不把思考过程算进去。接口没给正文时退回流里数到的。 */
+function spokenChars(outcome: StreamOutcome): number {
+  if (typeof outcome.answer === 'string') return outcome.answer.length
+  return outcome.outputChars
+}
+
 function nextRequestId(): string {
   return `bench_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -214,11 +222,12 @@ function actualShots(report: BenchReport): number {
   return Math.max(0, ...all.map(r => r.shots?.length ?? 0))
 }
 
-/** 发数只认 1 / 3 / 5，别的一律回到默认。 */
-function normalizeShots(requested?: number): number {
+/** 没写发数用默认；写了却不是 1 / 3 / 5 就拒绝，不悄悄改成 3。 */
+function resolveShots(requested?: number): number {
+  if (requested === undefined) return BENCH_DEFAULT_SHOTS
   const choices = BENCH_SHOT_CHOICES as readonly number[]
-  if (requested && choices.includes(requested)) return requested
-  return BENCH_DEFAULT_SHOTS
+  if (choices.includes(requested)) return requested
+  throw new Error('bench_invalid_shots')
 }
 
 export class LlmBenchRunner {
@@ -254,24 +263,35 @@ export class LlmBenchRunner {
     }
   }
 
-  async start(input: StartBenchInput): Promise<BenchReport> {
-    if (this.running) {
-      throw new Error('bench_already_running')
-    }
+  /** 开跑前能立刻告诉界面的错。没填窗口、乱填发数这类，别等跑起来再变成一份假报告。 */
+  peekStartError(input: StartBenchInput): string | undefined {
+    if (this.running) return 'bench_already_running'
     const profile = this.deps.listProfiles().find(p => p.id === input.profileId)
-    if (!profile) {
-      throw new Error('bench_profile_not_found')
-    }
-
-    // 指定了档位却一个合法的都没有：既不悄悄跑默认档（跑的跟说的不是一回事），
-    // 也不出一份零档位的空报告
+    if (!profile) return 'bench_profile_not_found'
+    const window = Number(profile.contextLength)
+    if (!Number.isFinite(window) || window <= 0) return 'bench_window_unknown'
     if (input.rungs?.length && !input.rungs.some(n => Number.isFinite(n) && Math.floor(n) > 0)) {
-      throw new Error('bench_invalid_rungs')
+      return 'bench_invalid_rungs'
     }
+    try {
+      resolveShots(input.shots)
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
+    }
+    return undefined
+  }
+
+  async start(input: StartBenchInput): Promise<BenchReport> {
+    const startError = this.peekStartError(input)
+    if (startError) throw new Error(startError)
+    const profile = this.deps.listProfiles().find(p => p.id === input.profileId)
+    if (!profile) throw new Error('bench_profile_not_found')
+    const shots = resolveShots(input.shots)
     const ladder = resolveBenchLadder(profile, input.rungs)
     const probe = buildBenchRequest(BENCH_PROBE_CHARS, 'concurrency')
-    const skipProbe = probe.estimatedTokens > ladder.inputLimit
-    const shots = normalizeShots(input.shots)
+    // 工具/并发预留的输出比长度档大（思考也要装得下），跳不跳这两项按它们自己的额度算
+    const probeBudget = resolveRequestBudget(profile, BENCH_PROBE_MAX_TOKENS)
+    const skipProbe = probe.estimatedTokens > probeBudget.inputLimit
 
     const report: BenchReport = {
       suiteVersion: BENCH_SUITE_VERSION,
@@ -477,12 +497,13 @@ export class LlmBenchRunner {
     const calledTool = outcome.toolCalls.length > 0
     rung.calledTool = calledTool
     if (calledTool) rung.toolName = outcome.toolCalls[0]?.function?.name
-    rung.outputChars = outcome.outputChars
-    rung.success = !rung.truncated && !calledTool && outcome.outputChars > 0
+    const spoken = spokenChars(outcome)
+    rung.outputChars = spoken
+    rung.success = !rung.truncated && !calledTool && spoken > 0
     rung.status = rung.success ? 'ok' : 'error'
     if (rung.truncated) rung.error = 'truncated'
     else if (calledTool) rung.error = 'unexpected_tool_call'
-    else if (outcome.outputChars <= 0) rung.error = 'empty_output'
+    else if (spoken <= 0) rung.error = 'empty_output'
   }
 
   /**
@@ -490,11 +511,12 @@ export class LlmBenchRunner {
    * 除出来是每秒几万字，几何平均会被这一项带飞——量不出生成快慢时，退回按整轮算。
    */
   private applyWriteSpeed(rung: BenchRungResult, outcome: StreamOutcome): void {
-    rung.outputChars = outcome.outputChars
+    const spoken = spokenChars(outcome)
+    rung.outputChars = spoken
     const genMs = outcome.totalMs - (outcome.ttftMs ?? 0)
     const basis = genMs >= WRITE_SPEED_MIN_GEN_MS ? genMs : Math.max(1, outcome.totalMs)
-    rung.outputCharsPerSec = outcome.outputChars > 0
-      ? Math.round((outcome.outputChars / basis) * 1000)
+    rung.outputCharsPerSec = spoken > 0
+      ? Math.round((spoken / basis) * 1000)
       : 0
   }
 
@@ -537,11 +559,11 @@ export class LlmBenchRunner {
     const attempt = emptyRung(display.targetChars, built.estimatedTokens, built.charCount)
     display.status = 'running'
     this.emit(report, section, display.targetChars, shot + 1)
-    // 不另卡一道更小的输出上限：思考型模型会先把额度花在想上，一卡就被当成说到一半。
     const outcome = await this.streamOnce({
       profileId,
       messages: built.messages,
       tools: built.tools,
+      maxOutputTokens: BENCH_PROBE_MAX_TOKENS,
     })
     this.finishShort(attempt, outcome)
     mergeShot(display, attempt)
@@ -565,6 +587,7 @@ export class LlmBenchRunner {
       messages: first.messages,
       tools: first.tools,
       toolChoice: 'auto',
+      maxOutputTokens: BENCH_PROBE_MAX_TOKENS,
     })
     const named = callOutcome.toolCalls.find(c => c.function.name === 'read_file') ?? callOutcome.toolCalls[0]
     call.calledTool = callOutcome.toolCalls.length > 0
@@ -606,6 +629,7 @@ export class LlmBenchRunner {
       profileId,
       messages: follow,
       tools: first.tools,
+      maxOutputTokens: BENCH_PROBE_MAX_TOKENS,
     })
     this.finishShort(after, afterOutcome)
     mergeToolPair(tools, call, after)

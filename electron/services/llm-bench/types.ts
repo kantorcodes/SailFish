@@ -1,5 +1,5 @@
 /** 冻住的标准题版本。换机器、换模型比的是这一版题。 */
-export const BENCH_SUITE_VERSION = 'sailfish-bench-v6'
+export const BENCH_SUITE_VERSION = 'sailfish-bench-v7'
 
 /** 长度档要写完那段冻住的话。 */
 export const BENCH_OUTPUT_MAX_TOKENS = 1024
@@ -9,6 +9,9 @@ export const BENCH_PROBE_CHARS = 4_000
 
 /** 同时打几路，像桌上常见的三件套。 */
 export const BENCH_CONCURRENCY = 3
+
+/** 工具往返、三路并发用的输出额度。够这段题和一段思考，不听模型配置里那个可能很小的上限。 */
+export const BENCH_PROBE_MAX_TOKENS = 8_192
 
 /** 采样冻住，不跟各机配置走，报告里照抄。 */
 export const BENCH_TEMPERATURE = 0.7

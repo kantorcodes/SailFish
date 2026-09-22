@@ -38,7 +38,7 @@ export function scoreContext(rungs: BenchRungResult[]): number {
 
 export function scoreOutput(rungs: BenchRungResult[]): number {
   const raw = rungs.reduce((sum, rung) => {
-    if (!ok(rung)) return sum
+    if (!ok(rung) || rung.offPassage) return sum
     const cps = rung.outputCharsPerSec
       ?? charsPerSec(rung.outputChars ?? 0, Math.max(1, (rung.totalMs ?? 0) - (rung.ttftMs ?? 0)))
     return sum + cps

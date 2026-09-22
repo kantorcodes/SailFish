@@ -11,7 +11,7 @@ import {
 
 describe('llm-bench suite', () => {
   it('题版本锁死', () => {
-    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v6')
+    expect(BENCH_SUITE_VERSION).toBe('sailfish-bench-v7')
   })
 
   it('工具清单冻住完整一套，不读运行时工具表', () => {

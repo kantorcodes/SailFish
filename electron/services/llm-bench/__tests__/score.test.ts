@@ -77,6 +77,13 @@ describe('llm-bench score', () => {
     expect(scoreConcurrency(lanes({ ttftMs: 1_200 }))).toBeLessThan(short)
   })
 
+  it('没照抄的档不计入写速分', () => {
+    const copied = scoreOutput([okRung({ outputCharsPerSec: 400 })])
+    const freestyle = scoreOutput([okRung({ outputCharsPerSec: 4000, offPassage: true })])
+    expect(copied).toBeGreaterThan(0)
+    expect(freestyle).toBe(0)
+  })
+
   it('四项落在同一量级，不让一项把总分带偏', () => {
     // 参照一次真机数据：五档写速合计约 2800 字/秒，工具往返约 1.8 秒，最慢一路首字 682ms
     const rungs = [

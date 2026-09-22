@@ -99,7 +99,8 @@ export class LlmBenchService {
 
     ipcMain.handle('llmBench:start', async (_event, input: StartBenchInput) => {
       if (!this.runner) return { ok: false, error: 'not_ready' }
-      if (this.runner.isRunning()) return { ok: false, error: 'already_running' }
+      const startError = this.runner.peekStartError(input)
+      if (startError) return { ok: false, error: startError }
       void this.runner.start(input).catch((err) => {
         log.error('bench run failed:', err)
         const report: BenchReport = {

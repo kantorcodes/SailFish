@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AiProfile } from '@shared/types'
 import { LlmBenchRunner, type BenchAiClient } from '../runner'
-import { BENCH_CONCURRENCY, BENCH_SUITE_VERSION, BENCH_TEMPERATURE, DEFAULT_BENCH_RUNGS } from '../types'
+import { BENCH_CONCURRENCY, BENCH_PROBE_MAX_TOKENS, BENCH_SUITE_VERSION, BENCH_TEMPERATURE, DEFAULT_BENCH_RUNGS } from '../types'
 import { BENCH_OUTPUT_PASSAGE, BENCH_TOOLS } from '../suite'
 
 function fakeProfile(over: Partial<AiProfile> = {}): AiProfile {
@@ -101,8 +101,9 @@ describe('llm-bench runner', () => {
         const isContext = (messages[0].content || '').includes('轴=context')
         const wait = isContext ? (delays[nth++] ?? 100) : 10
         await new Promise(resolve => setTimeout(resolve, wait))
-        onChunk('好'.repeat(wait / 10))
-        onDone({ content: '好', finish_reason: 'stop', usage: { prompt_tokens: wait, completion_tokens: 1, total_tokens: wait + 1 } })
+        const text = '好'.repeat(wait / 10)
+        onChunk(text)
+        onDone({ content: text, finish_reason: 'stop', usage: { prompt_tokens: wait, completion_tokens: 1, total_tokens: wait + 1 } })
       }),
       listProfiles: () => [fakeProfile()],
       getActiveProfileId: () => 'p1',
@@ -250,6 +251,17 @@ describe('llm-bench runner', () => {
     await expect(runner.start({ profileId: 'p1', rungs: [Number.NaN, -3, 0] })).rejects.toThrow('bench_invalid_rungs')
   })
 
+  it('写了不是 1/3/5 的发数就报错，不悄悄改成 3', async () => {
+    const runner = new LlmBenchRunner({
+      ai: smartAi(),
+      listProfiles: () => [fakeProfile()],
+      getActiveProfileId: () => 'p1',
+    })
+    await expect(runner.start({ profileId: 'p1', shots: 2 })).rejects.toThrow('bench_invalid_shots')
+    await expect(runner.start({ profileId: 'p1', shots: 4 })).rejects.toThrow('bench_invalid_shots')
+    expect(runner.peekStartError({ profileId: 'p1', shots: 2 })).toBe('bench_invalid_shots')
+  })
+
   it('不带档位就跑冻住的那整套，报告记成标准档位', async () => {
     const runner = new LlmBenchRunner({
       ai: smartAi(),
@@ -261,6 +273,16 @@ describe('llm-bench runner', () => {
     expect(report.rungs.map(r => r.targetChars)).toEqual([...DEFAULT_BENCH_RUNGS])
     const custom = await runner.start({ profileId: 'p1', rungs: [4000], shots: 1 })
     expect(custom.standardLadder).toBe(false)
+  })
+
+  it('没填窗口就不开跑，不悄悄当十二万八', async () => {
+    const runner = new LlmBenchRunner({
+      ai: smartAi(),
+      listProfiles: () => [fakeProfile({ contextLength: undefined })],
+      getActiveProfileId: () => 'p1',
+    })
+    await expect(runner.start({ profileId: 'p1', shots: 1 })).rejects.toThrow('bench_window_unknown')
+    expect(runner.peekStartError({ profileId: 'p1', shots: 1 })).toBe('bench_window_unknown')
   })
 
   it('只打一发时，行为跟从前一模一样', async () => {
@@ -387,8 +409,8 @@ describe('llm-bench runner', () => {
     const ran = report.rungs.filter(r => r.status === 'ok')
     expect(ran.length).toBeGreaterThan(0)
     expect(ran.every(r => r.offPassage === false)).toBe(true)
-    // 写速仍按流里数到的字数算（含思考），SPEC 里记了这条已知偏差
-    expect(ran[0].outputChars).toBeGreaterThan(BENCH_OUTPUT_PASSAGE.length)
+    // 写速按正文算，不把思考过程算进去
+    expect(ran[0].outputChars).toBe(BENCH_OUTPUT_PASSAGE.length)
   })
 
   it('限流按 HTTP 429 记账，不靠文案猜', async () => {
@@ -435,7 +457,7 @@ describe('llm-bench runner', () => {
     expect(report.rungs[0].success).toBe(false)
   })
 
-  it('发起调用和处理返回结果都不另卡输出额度', async () => {
+  it('工具两步用冻住的输出额度，不听模型配置', async () => {
     const caps: Array<number | undefined> = []
     const runner = new LlmBenchRunner({
       ai: fakeAi(async (messages, _t, onChunk, onToolCall, onDone, _e, _id, _p, _rid, _r, _ready, _fo, opts) => {
@@ -466,7 +488,7 @@ describe('llm-bench runner', () => {
       getActiveProfileId: () => 'p1',
     })
     await runner.start({ profileId: 'p1', rungs: [4000], shots: 1 })
-    expect(caps).toEqual([undefined, undefined])
+    expect(caps).toEqual([BENCH_PROBE_MAX_TOKENS, BENCH_PROBE_MAX_TOKENS])
   })
 
   it('三路并发思考吃掉 64 token 也不该判假失败', async () => {
@@ -480,10 +502,11 @@ describe('llm-bench runner', () => {
           return
         }
         caps.push(opts?.maxOutputTokens)
-        // 模拟思考型：先吐一大段想，再给那一个字；若外面卡了小额度就会被截
-        const thought = '想'.repeat(200)
+        // 模拟思考型：先吐一大段想，再给那一个字。额度要装得下这段思考，
+        // 卡成 2048 会把真机能过的三路打成假失败。
+        const thought = '想'.repeat(3_000)
         const cap = opts?.maxOutputTokens
-        if (cap !== undefined && cap < 200) {
+        if (cap !== undefined && cap < thought.length) {
           onChunk(thought.slice(0, cap))
           onDone({ content: thought.slice(0, cap), finish_reason: 'length' })
           return
@@ -496,7 +519,7 @@ describe('llm-bench runner', () => {
       getActiveProfileId: () => 'p1',
     })
     const report = await runner.start({ profileId: 'p1', rungs: [4000], shots: 1 })
-    expect(caps).toEqual([undefined, undefined, undefined])
+    expect(caps).toEqual([BENCH_PROBE_MAX_TOKENS, BENCH_PROBE_MAX_TOKENS, BENCH_PROBE_MAX_TOKENS])
     expect(report.concurrency?.okCount).toBe(BENCH_CONCURRENCY)
     expect(report.score?.concurrency).toBeGreaterThan(0)
   })
