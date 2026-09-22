@@ -872,6 +872,7 @@ const runSlashCommand = async (def: SlashCommandDef, hint?: string) => {
     return
   }
   isCompacting.value = true
+  nextTick(() => focusInput())
   try {
     applySlashResult(await props.compactContext(hint))
   } catch {
@@ -1259,7 +1260,9 @@ const handleInputKeyDown = (event: KeyboardEvent) => {
 }
 
 const handleSend = async (opts?: { enqueue?: boolean }) => {
-  if (isComposing.value || isCompacting.value) return
+  if (isComposing.value) return
+  // 压缩是一轮活，输入框不能锁死。压缩接不了补充，发出去的先排上，压完再走。
+  if (isCompacting.value) opts = { enqueue: true }
   if (props.isAttaching) {
     toast.warning(t('ai.parsingPleaseWait'))
     return
@@ -1848,7 +1851,6 @@ const handleSendClick = (event: MouseEvent) => {
           v-model="inputText"
           :class="{ 'has-slash-overlay': !!slashHighlight }"
           :placeholder="composerPlaceholder"
-          :disabled="isCompacting"
           @input="handleInputChange"
           @scroll="syncSlashMirror"
           @keydown="handleInputKeyDown"
@@ -2015,7 +2017,7 @@ const handleSendClick = (event: MouseEvent) => {
           <button v-else-if="isAgentRunning" class="stop-btn" @click="abortAgent" :title="t('ai.stopAgent')">
             <Square :size="16" fill="currentColor" />
           </button>
-          <button v-else class="send-btn send-btn-agent" :disabled="isAttaching || isCompacting || !canSubmitMessage" :title="sendButtonTitle" @click="handleSendClick">
+          <button v-else class="send-btn send-btn-agent" :disabled="isAttaching || !canSubmitMessage" :title="sendButtonTitle" @click="handleSendClick">
             <ArrowUp :size="18" />
           </button>
         </div>
@@ -2093,7 +2095,7 @@ const handleSendClick = (event: MouseEvent) => {
         <button
           v-else
           class="send-btn send-btn-agent"
-          :disabled="isAttaching || isCompacting || !canSubmitMessage"
+          :disabled="isAttaching || !canSubmitMessage"
           :title="sendButtonTitle"
           @click="handleSendClick"
         >
