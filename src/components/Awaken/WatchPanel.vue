@@ -767,7 +767,10 @@ onMounted(async () => {
   refreshTimer = setInterval(loadWatchData, 5 * 60 * 1000)
 
   cleanupWatchStarted = window.electronAPI.watch.onTaskStarted?.((data: any) => {
-    if (data?.watchId) markWatchRunning(data.watchId)
+    if (data?.watchId) {
+      markWatchRunning(data.watchId)
+      void loadWatchData()
+    }
     // 并发下仅绑定当前正在直播或已选中详情的关切，避免其它关切冲掉内心独白
     if (data?.watchId && data?.executionType === 'assistant') {
       if (

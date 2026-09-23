@@ -246,9 +246,10 @@ function anomalySummary(w: WatchDefinition): string {
 
 function runningDurationText(w: WatchDefinition): string {
   void nowTick.value
-  const startAt = w.lastRun?.at
-  if (typeof startAt !== 'number') return ''
-  const ms = Date.now() - startAt
+  // lastRun.at 在 status=running 时才是这次开始时间；失败/完成时间不得拿来冒充已运行多久
+  const last = w.lastRun
+  if (!last || last.status !== 'running' || typeof last.at !== 'number') return ''
+  const ms = Date.now() - last.at
   if (ms < 0) return ''
   return formatDuration(ms)
 }

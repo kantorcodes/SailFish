@@ -28,6 +28,7 @@ import type {
 
 const log = createLogger('WatchService')
 import { WatchStore, getWatchStore } from './store'
+import { DEFAULT_WATCH_TIMEOUT_SECONDS, raceWithTimeout, watchExecutionTimeoutMs } from './execution-timeout'
 import type { SensorEvent, EventHandler } from '../sensor/types'
 import { getEventBus } from '../sensor/event-bus'
 import { EventPool } from './event-pool'
@@ -48,7 +49,6 @@ let CronExpressionParser: any = null
 
 const MIN_INTERVAL_SECONDS = 10
 const MAX_INTERVAL_SECONDS = 7 * 24 * 3600 // 7 days
-const DEFAULT_TIMEOUT_SECONDS = 900
 const MAX_OUTPUT_LENGTH = 1000
 /** 不同 Watch 全局并发软上限（含 wakeup）；超额排队不丢弃 */
 const DEFAULT_MAX_CONCURRENT_WATCHES = 5
@@ -135,6 +135,7 @@ export class WatchService {
     }
 
     this.isRunning = true
+    this.reconcileStaleRunningRecords()
 
     // 通过 EventPool 订阅事件总线（分流即时/攒批事件）
     const eventBus = getEventBus()
@@ -373,7 +374,7 @@ export class WatchService {
       return { success: true, output: '', error: '', duration: 0, skipped: false }
     }
 
-    if (this.runningWatches.has(id) || this.scheduledWatches.has(id)) {
+    if (this.isWatchBusy(id)) {
       return { success: false, output: '', error: 'Watch already running', duration: 0, skipped: true, skipReason: 'already_running' }
     }
 
@@ -401,6 +402,22 @@ export class WatchService {
 
   getRunningWatches(): string[] {
     return Array.from(this.runningWatches.keys())
+  }
+
+  private isWatchBusy(id: string): boolean {
+    return this.runningWatches.has(id) || this.scheduledWatches.has(id)
+  }
+
+  /** 进程重启后，磁盘上残留的 running 不得再当成正在执行 */
+  private reconcileStaleRunningRecords(): void {
+    for (const watch of this.store.getAll()) {
+      if (watch.lastRun?.status !== 'running') continue
+      this.store.updateLastRun(watch.id, {
+        ...watch.lastRun,
+        status: 'cancelled',
+        error: watch.lastRun.error || 'interrupted',
+      })
+    }
   }
 
   /**
@@ -444,7 +461,7 @@ export class WatchService {
         continue
       }
 
-      if (this.runningWatches.has(watch.id) || this.scheduledWatches.has(watch.id)) {
+      if (this.isWatchBusy(watch.id)) {
         log.info(`Watch already running/scheduled: ${watch.name}`)
         continue
       }
@@ -632,10 +649,25 @@ export class WatchService {
       })
 
       this.runningWatches.set(watch.id, { watchId: watch.id, startTime, agentId })
-      result = await this.executeWithAssistantAgent(
-        watch, enhancedPrompt, isSilent, isWakeup, agentSessionId
+      // 总览「已运行」只认 status=running 的 lastRun.at；失败记录不得冒充本次开始时间
+      this.store.updateLastRun(watch.id, {
+        at: startTime,
+        status: 'running',
+        duration: 0,
+        triggerType: event.type,
+        agentSessionId
+      })
+      const timeoutMs = watchExecutionTimeoutMs(watch.execution.timeout)
+      const timeoutSec = watch.execution.timeout ?? DEFAULT_WATCH_TIMEOUT_SECONDS
+      result = await raceWithTimeout(
+        this.executeWithAssistantAgent(
+          watch, enhancedPrompt, isSilent, isWakeup, agentSessionId
+        ),
+        timeoutMs,
+        `Watch timeout (${timeoutSec}s)`,
       )
     } catch (error) {
+      try { this.config.agentService.abort(agentId) } catch { /* ignore */ }
       const errObj = error instanceof Error ? error : null
       result = {
         success: false, output: '',
@@ -644,7 +676,8 @@ export class WatchService {
         duration: Date.now() - startTime
       }
     } finally {
-      this.runningWatches.delete(watch.id)
+      const cur = this.runningWatches.get(watch.id)
+      if (cur?.startTime === startTime) this.runningWatches.delete(watch.id)
     }
 
     this.recordExecution(watch, event, result, agentSessionId)
@@ -763,20 +796,13 @@ export class WatchService {
         ...(wakeupMode ? { wakeup: true } : {})
       }
 
-      const timeoutMs = (watch.execution.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
-      let timeoutHandle: NodeJS.Timeout | null = null
-
-      const agentResult = await Promise.race([
-        this.config.agentService.runAssistant(agentId, prompt, context, {
-          enabled: true, commandTimeout: 30000,
-          autoExecuteSafe: true, autoExecuteModerate: true,
-          // 后台关切无确认 UI（面板隐藏 confirm），必须 free，否则会卡在 dangerous 工具上
-          executionMode: 'free', debugMode: false
-        }, undefined, callbacks),
-        new Promise<string>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error(`Watch timeout (${watch.execution.timeout ?? DEFAULT_TIMEOUT_SECONDS}s)`)), timeoutMs)
-        })
-      ]).finally(() => { if (timeoutHandle) clearTimeout(timeoutHandle) })
+      // 墙钟上限在 executeWatch 的 raceWithTimeout，罩住本函数含技能预加载
+      const agentResult = await this.config.agentService.runAssistant(agentId, prompt, context, {
+        enabled: true, commandTimeout: 30000,
+        autoExecuteSafe: true, autoExecuteModerate: true,
+        // 后台关切无确认 UI（面板隐藏 confirm），必须 free，否则会卡在 dangerous 工具上
+        executionMode: 'free', debugMode: false
+      }, undefined, callbacks)
 
       return {
         success: !hasError,
@@ -1458,12 +1484,12 @@ export class WatchService {
       for (const trigger of watch.triggers) {
         if (trigger.type === 'cron') {
           const key = `${watch.id}:cron`
-          if (!this.timers.has(key) && !this.runningWatches.has(watch.id) && !this.scheduledWatches.has(watch.id)) {
+          if (!this.timers.has(key) && !this.isWatchBusy(watch.id)) {
             this.scheduleCron(watch.id, trigger.expression)
           }
         } else if (trigger.type === 'interval') {
           const key = `${watch.id}:interval`
-          if (!this.timers.has(key) && !this.runningWatches.has(watch.id) && !this.scheduledWatches.has(watch.id)) {
+          if (!this.timers.has(key) && !this.isWatchBusy(watch.id)) {
             this.scheduleInterval(watch.id, trigger.seconds)
           }
         }
@@ -1954,7 +1980,7 @@ export class WatchService {
             sshSessionId: task.target.sshSessionId,
             sshSessionName: task.target.sshSessionName,
             workingDirectory: task.target.workingDirectory,
-            timeout: task.options?.timeout ?? DEFAULT_TIMEOUT_SECONDS
+            timeout: task.options?.timeout ?? DEFAULT_WATCH_TIMEOUT_SECONDS
           }
 
           const params: CreateWatchParams = {
