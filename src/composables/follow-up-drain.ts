@@ -67,6 +67,53 @@ export function coalescePendingHandoff(raw: unknown): CoalescedPendingFollowUp |
   }
 }
 
+export interface OptimisticStepLike {
+  id: string
+  type: string
+  content?: string
+  images?: string[]
+  attachments?: Array<{ filename?: string }>
+}
+
+/**
+ * 后端这条已经接住了墙上的临时消息：同一句话，而且临时消息上的图和附件都在。
+ * 对不上的临时消息要留着——后面另一句不能把已经看见的话悄悄擦掉。
+ */
+export function optimisticPlaceholderConfirmedBy(
+  optimistic: OptimisticStepLike,
+  incoming: OptimisticStepLike,
+): boolean {
+  if (!optimistic.id.startsWith('__optimistic_')) return false
+  if (incoming.id.startsWith('__optimistic_')) return false
+  if ((optimistic.content ?? '') !== (incoming.content ?? '')) return false
+  if (!optimisticMediaCovered(incoming, optimistic)) return false
+  if (incoming.type === 'user_task') {
+    return optimistic.type === 'user_task' || optimistic.type === 'user_supplement'
+  }
+  if (incoming.type === 'user_supplement') {
+    return optimistic.type === 'user_supplement'
+  }
+  return false
+}
+
+/** 临时消息上的图、附件，到来的正式步骤里都得有。预览图和原图内容可以不同，张数不能少。 */
+function optimisticMediaCovered(incoming: OptimisticStepLike, optimistic: OptimisticStepLike): boolean {
+  const wantedNames = (optimistic.attachments ?? [])
+    .map(item => item.filename)
+    .filter((name): name is string => !!name)
+  if (wantedNames.length > 0) {
+    const got = new Set(
+      (incoming.attachments ?? [])
+        .map(item => item.filename)
+        .filter((name): name is string => !!name),
+    )
+    if (!wantedNames.every(name => got.has(name))) return false
+  }
+  const wantedImages = optimistic.images?.length ?? 0
+  if (wantedImages > 0 && (incoming.images?.length ?? 0) < wantedImages) return false
+  return true
+}
+
 type QueueHead = {
   message: string
   images?: string[]

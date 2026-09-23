@@ -24,7 +24,7 @@ import { showConfirm, showAlert } from './useConfirm'
 import { toast } from './useToast'
 import { resolveExactSlash } from './slash-commands'
 import { formatAccelerator } from '../utils/shortcut'
-import { coalescePendingHandoff, decideFollowUpDrain, mergePendingIntoQueue } from './follow-up-drain'
+import { coalescePendingHandoff, decideFollowUpDrain, mergePendingIntoQueue, optimisticPlaceholderConfirmedBy } from './follow-up-drain'
 
 const log = createLogger('Agent')
 
@@ -1313,6 +1313,7 @@ export function useAgentMode(
       const images = imageCallbacks?.getImages() || []
       const previewImages = imageCallbacks?.getPreviewImages?.() || images
       const optimisticId = `__optimistic_user_supplement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      const parsedDocs = attachmentCallbacks?.getParsedDocs?.() || []
 
       // 输入框这边已经清掉了，先上墙，避免等 IPC / 步骤回调期间对话里什么都没有
       terminalStore.addAgentStep(tabId, {
@@ -1325,10 +1326,10 @@ export function useAgentMode(
       })
       void scrollToBottom()
 
-      const documentContext = await getDocumentContext()
-
+      let documentContext = ''
       let success = false
       try {
+        documentContext = await getDocumentContext()
         success = await appendToCurrentConversation({
           message,
           attachments: supplementAttachments.length > 0 ? supplementAttachments : undefined,
@@ -1341,10 +1342,24 @@ export function useAgentMode(
       }
 
       if (success) {
-        if (supplementAttachments.length > 0) attachmentCallbacks?.clearAttachments()
+        if (supplementAttachments.length > 0 || parsedDocs.length > 0) attachmentCallbacks?.clearAttachments()
         if (images.length > 0) imageCallbacks?.clearImages()
       } else {
-        terminalStore.removeAgentStep(tabId, optimisticId)
+        // 已经上墙的这句话不能悄悄拿掉。插不进当前这场，就排到下一轮，图一起带走。
+        followUpQueue.value = [{
+          id: `followup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          message,
+          images: images.length > 0 ? images : undefined,
+          previewImages: previewImages.length > 0 ? previewImages : undefined,
+          attachments: supplementAttachments.length > 0 ? supplementAttachments : undefined,
+          parsedDocs: parsedDocs.length > 0 ? parsedDocs.map(doc => ({ ...doc })) : undefined,
+          documentContext: documentContext || undefined,
+          workbenchContext: options?.workbenchContext,
+        }, ...followUpQueue.value]
+        if (supplementAttachments.length > 0 || parsedDocs.length > 0) attachmentCallbacks?.clearAttachments()
+        if (images.length > 0) imageCallbacks?.clearImages()
+        log.warn('这句话没插进当前这场，已留在对话里并排到下一轮')
+        if (!isAgentRunning.value) scheduleNextFollowUp(tabId)
       }
       return
     }
@@ -1584,8 +1599,8 @@ export function useAgentMode(
     } finally {
       // 上一轮的收尾若晚于下一轮开工，不能清掉下一轮的运行态
       if (epoch === agentRunEpoch) {
-        // 后端未推送 user_task（IPC 失败等）时固化乐观步骤，避免 __optimistic_ 前缀残留
-        terminalStore.commitOptimisticAgentSteps(tabId)
+        // 只固化这一轮自己的临时任务。别的临时消息还在等它自己的正式步骤，不能改掉编号。
+        terminalStore.commitOptimisticAgentSteps(tabId, `__optimistic_user_task_${startTime}`)
         finalizeAgentRunWithScrollSettle(tabId)
       }
     }
@@ -2080,17 +2095,11 @@ export function useAgentMode(
       if (!isEventForThisTab(data.agentId, data.ptyId)) return
       
       const tabId = currentTabId.value
-      // 后端 user_task 到达后替换乐观步骤（避免重复分组）
-      if (data.step.type === 'user_task' && !data.step.id.startsWith('__optimistic_')) {
-        terminalStore.removeOptimisticAgentSteps(tabId)
-      }
-      if (data.step.type === 'user_supplement' && !data.step.id.startsWith('__optimistic_')) {
-        const optimistic = (agentState.value?.steps ?? []).find(step =>
-          step.id.startsWith('__optimistic_user_supplement_')
-          && step.content === data.step.content
-        )
-        if (optimistic) terminalStore.removeAgentStep(tabId, optimistic.id)
-      }
+      // 只换掉被这条正式消息接住的临时气泡。另一句话、或图没带上的同一句，留在墙上。
+      const confirmedIds = (agentState.value?.steps ?? [])
+        .filter(step => optimisticPlaceholderConfirmedBy(step, data.step))
+        .map(step => step.id)
+      if (confirmedIds.length > 0) terminalStore.removeOptimisticAgentSteps(tabId, confirmedIds)
 
       // 「准备中 → 思考中」切换：乐观移除 startup 占位，避免「占位 + 新 message」中间态闪现。
       // 后端 removeStep IPC 到达时 removeAgentStep 幂等跳过。

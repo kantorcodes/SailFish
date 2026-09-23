@@ -3,6 +3,8 @@ import {
   coalescePendingHandoff,
   decideFollowUpDrain,
   mergePendingIntoQueue,
+  optimisticPlaceholderConfirmedBy,
+  type OptimisticStepLike,
 } from '../follow-up-drain'
 
 describe('decideFollowUpDrain', () => {
@@ -43,6 +45,61 @@ describe('coalescePendingHandoff', () => {
 
   it('只有空白时不开下一轮', () => {
     expect(coalescePendingHandoff(['  ', { message: '' }])).toBeNull()
+  })
+})
+
+describe('optimisticPlaceholderConfirmedBy', () => {
+  const imageMessage: OptimisticStepLike = {
+    id: '__optimistic_user_supplement_1',
+    type: 'user_supplement',
+    content: '你这个图画的一般啊',
+    images: ['preview-png'],
+    attachments: [{ filename: 'image.png' }],
+  }
+
+  it('另一句话接不住已经上墙的这句', () => {
+    expect(optimisticPlaceholderConfirmedBy(imageMessage, {
+      id: 'user_task_q',
+      type: 'user_task',
+      content: '？',
+    })).toBe(false)
+  })
+
+  it('同一句但没带上图，也接不住', () => {
+    expect(optimisticPlaceholderConfirmedBy(imageMessage, {
+      id: 'user_task_text',
+      type: 'user_task',
+      content: '你这个图画的一般啊',
+    })).toBe(false)
+  })
+
+  it('同一句而且图和附件都在，才换成正式的那条', () => {
+    expect(optimisticPlaceholderConfirmedBy(imageMessage, {
+      id: 'user_task_ok',
+      type: 'user_task',
+      content: '你这个图画的一般啊',
+      images: ['full-png'],
+      attachments: [{ filename: 'image.png' }],
+    })).toBe(true)
+    expect(optimisticPlaceholderConfirmedBy(imageMessage, {
+      id: 'user_supplement_ok',
+      type: 'user_supplement',
+      content: '你这个图画的一般啊',
+      images: ['full-png'],
+      attachments: [{ filename: 'image.png' }],
+    })).toBe(true)
+  })
+
+  it('正式的补充不会换掉另一条临时任务', () => {
+    expect(optimisticPlaceholderConfirmedBy({
+      id: '__optimistic_user_task_1',
+      type: 'user_task',
+      content: '你这个图画的一般啊',
+    }, {
+      id: 'user_supplement_other',
+      type: 'user_supplement',
+      content: '你这个图画的一般啊',
+    })).toBe(false)
   })
 })
 

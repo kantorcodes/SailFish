@@ -2802,26 +2802,30 @@ export const useTerminalStore = defineStore('terminal', () => {
   }
 
   /**
-   * 移除乐观插入的 user_task（后端真实步骤到达后替换）
+   * 只移除被正式步骤接住的那些临时消息。不能把墙上其他临时消息一起清掉。
    */
-  function removeOptimisticAgentSteps(tabId: string): void {
+  function removeOptimisticAgentSteps(tabId: string, stepIds: string[]): void {
+    if (stepIds.length === 0) return
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab?.agentState?.steps.length) return
-    const filtered = tab.agentState.steps.filter(s => !s.id.startsWith('__optimistic_'))
+    const drop = new Set(stepIds)
+    const filtered = tab.agentState.steps.filter(s => !drop.has(s.id))
     if (filtered.length === tab.agentState.steps.length) return
     tab.agentState = { ...tab.agentState, steps: filtered }
     tabs.value = [...tabs.value]
   }
 
   /**
-   * IPC 异常结束且后端未推送 user_task 时，将乐观步骤固化为正式 user_task（去掉前缀）
+   * IPC 异常结束且后端未推送 user_task 时，只固化这一轮自己的临时任务（去掉前缀）。
+   * 其他临时消息还在等自己的正式步骤，改编号会导致对不上、出现两条。
    */
-  function commitOptimisticAgentSteps(tabId: string): void {
+  function commitOptimisticAgentSteps(tabId: string, stepId: string): void {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab?.agentState?.steps.length) return
+    if (!stepId.startsWith('__optimistic_')) return
     let changed = false
     const steps = tab.agentState.steps.map(s => {
-      if (!s.id.startsWith('__optimistic_')) return s
+      if (s.id !== stepId) return s
       changed = true
       return { ...s, id: s.id.slice('__optimistic_'.length) }
     })
