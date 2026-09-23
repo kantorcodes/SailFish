@@ -83,14 +83,41 @@ export function isConfigured(): boolean {
 }
 
 /**
- * 执行搜索
+ * 执行搜索。成功和失败都写入运行日志：哪一家、搜了什么、返回了哪些标题和链接。
+ * 整页正文只留开头一段，避免一次搜索把日志撑满。
  */
 export async function search(query: string, options?: WebSearchOptions): Promise<WebSearchResult[]> {
-  const provider = providers.get(currentSettings.providerId)
+  const providerId = currentSettings.providerId
+  const provider = providers.get(providerId)
+  const asked = clipForLog(query, 500)
   if (!provider) {
-    throw new Error(`Web search provider "${currentSettings.providerId}" not found`)
+    log.warn(`Search failed: provider=${providerId} not found, query=${asked}`)
+    throw new Error(`Web search provider "${providerId}" not found`)
   }
-  return provider.search(query, options)
+  const started = Date.now()
+  try {
+    const results = await provider.search(query, options)
+    const hits = results.map((result, index) => formatHit(result, index + 1)).join('\n')
+    log.info(`Search ok: provider=${providerId}, ${Date.now() - started}ms, results=${results.length}, query=${asked}${hits ? `\n${hits}` : ''}`)
+    return results
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log.warn(`Search failed: provider=${providerId}, ${Date.now() - started}ms, query=${asked}: ${message}`)
+    throw error
+  }
+}
+
+function formatHit(result: WebSearchResult, index: number): string {
+  const lines = [`  [${index}] ${clipForLog(result.title, 160)}`, `      ${result.url}`]
+  if (result.snippet) lines.push(`      ${clipForLog(result.snippet, 240)}`)
+  if (result.content) lines.push(`      content: ${clipForLog(result.content, 240)}`)
+  return lines.join('\n')
+}
+
+function clipForLog(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  return `${flat.slice(0, max)}…(${flat.length})`
 }
 
 /**
