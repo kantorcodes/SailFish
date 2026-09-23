@@ -19,6 +19,11 @@ function formatAiProfileStreamTitle(args: Record<string, unknown>): string {
   return hint ? `${t(key)}: ${hint}` : t(key)
 }
 
+function formatWebSearchStreamTitle(args: Record<string, unknown>): string {
+  const provider = typeof args.provider === 'string' ? args.provider.trim() : ''
+  return provider ? `${t('config.web_search.manage')}: ${provider}` : t('config.web_search.manage')
+}
+
 function formatSshSessionStreamTitle(args: Record<string, unknown>): string {
   const action = typeof args.action === 'string' ? args.action : ''
   const key = action === 'add'
@@ -44,6 +49,7 @@ export const configTools: ToolDefinitionWithMeta[] = [
 每项标注是否可直接修改或需要用户确认。
 邮箱和日历账户会显示已配置的账户列表、服务商和当前连接状态。
 AI 模型配置会列出名称、模型名、接口地址、是否已填 Key、是否当前默认；增删改用 config_ai_profile（不可用 config_set 整表覆盖）。
+联网搜索会列出开没开、当前用的哪一家、各家密钥填了没有（不回显密钥；沿用模型密钥会标明）；换服务商、填密钥、改档位用 config_web_search（不可用 config_set 整表覆盖）。
 SSH 主机会列出名称、地址、账号、分组、认证是否已填（不回显密码）；增删改用 config_ssh_session（不可用 config_set 整表覆盖）。
 MCP 连接器列表可通过 config_mcp_server_add/update/delete 管理（不可用 config_set 整表覆盖）。`,
       parameters: {
@@ -51,7 +57,7 @@ MCP 连接器列表可通过 config_mcp_server_add/update/delete 管理（不可
         properties: {
           category: {
             type: 'string',
-            enum: ['all', 'ui', 'terminal', 'agent', 'im', 'email', 'calendar', 'gateway', 'proxy', 'mcp', 'knowledge'],
+            enum: ['all', 'ui', 'terminal', 'agent', 'im', 'email', 'calendar', 'gateway', 'proxy', 'mcp', 'knowledge', 'webSearch'],
             description: '筛选配置分类，默认 all'
           }
         }
@@ -67,6 +73,7 @@ MCP 连接器列表可通过 config_mcp_server_add/update/delete 管理（不可
 支持的配置 key 见 config_list 的输出。
 特殊用法：
 - key="aiProfiles" 查看已配置的 AI 模型（名称、模型名、地址、Key 是否已填；不回显 Key）
+- key="webSearchSettings" 查看联网搜索（开没开、当前服务商、各家密钥是否已填、档位；不回显密钥）
 - key="sshSessions" 查看已配置的 SSH 主机（名称、地址、账号、分组、认证是否已填；不回显密码）
 - key="mcpServers" 查看所有已配置的 MCP 连接器详情（id、transport、command/url 等）
 在执行对应的 add/update/delete 前建议先用此工具了解现状。`,
@@ -91,7 +98,7 @@ MCP 连接器列表可通过 config_mcp_server_add/update/delete 管理（不可
 **安全类配置**（界面语言、主题、终端字号等）直接生效。
 **敏感类配置**（IM 凭证、网关、代理）也可设置，写入后建议用 im_connect 测试连接。
 
-**AI 模型列表（aiProfiles）、SSH 主机（sshSessions）和 MCP 连接器列表（mcpServers）不可通过本工具整表写入**，否则会覆盖已有项。模型请用 \`config_ai_profile\`；主机请用 \`config_ssh_session\`；MCP 请用 \`config_mcp_server_add\` / \`config_mcp_server_update\` / \`config_mcp_server_delete\`。
+**AI 模型列表（aiProfiles）、SSH 主机（sshSessions）、MCP 连接器列表（mcpServers）和联网搜索（webSearchSettings）不可通过本工具整表写入**，否则会覆盖已有项。模型请用 \`config_ai_profile\`；主机请用 \`config_ssh_session\`；MCP 请用 \`config_mcp_server_add\` / \`config_mcp_server_update\` / \`config_mcp_server_delete\`；搜索请用 \`config_web_search\`。
 
 常见用法：
 - 切换语言: key="language", value="en-US"
@@ -415,5 +422,41 @@ Key 不会回显。`,
       allowedForSubAgent: false,
       streamDisplay: { customRender: formatSshSessionStreamTitle }
     }
-  }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'config_web_search',
+      description: `管理旗鱼的联网搜索（换当前服务商、开关、给某一家填或清掉密钥、改档位）。不会整表覆盖，改一家不影响其他家。不能新增或删除服务商。
+
+**provider**：bocha（博查）/ zhipu（智谱）/ kimi（Kimi）/ tavily / jina / google。改密钥、档位或换当前使用的那家时必填。
+**setCurrent=true**：把 provider 设为当前使用的搜索引擎。
+**enabled**：联网搜索总开关。只想开关时可以不填 provider。搜索关着时，只换服务商不会自动打开。
+**apiKey**：写入这家的搜索密钥。留空字符串表示清掉单独填的密钥（智谱、Kimi 会回到沿用模型密钥）。省略则保持原密钥。
+**engine**：仅智谱。search_std / search_pro / search_pro_sogou / search_pro_quark。留空恢复默认 search_std。
+**tier**：仅 Kimi。basic / pro。留空恢复默认 basic。
+**cx**：仅 Google，搜索引擎编号。
+
+密钥不回显。改完立刻生效，不用重启。`,
+      parameters: {
+        type: 'object',
+        properties: {
+          provider: {
+            type: 'string',
+            enum: ['bocha', 'zhipu', 'kimi', 'tavily', 'jina', 'google'],
+            description: '要改的服务商',
+          },
+          setCurrent: { type: 'boolean', description: '把这一家设为当前使用的搜索引擎' },
+          enabled: { type: 'boolean', description: '联网搜索总开关' },
+          apiKey: { type: 'string', description: '这家的搜索密钥。留空则清掉单独填的密钥。省略则不动。' },
+          engine: { type: 'string', description: '智谱引擎：search_std / search_pro / search_pro_sogou / search_pro_quark' },
+          tier: { type: 'string', enum: ['basic', 'pro'], description: 'Kimi 档位' },
+          cx: { type: 'string', description: 'Google 搜索引擎编号' },
+        },
+      },
+    },
+    _meta: {
+      streamDisplay: { customRender: formatWebSearchStreamTitle },
+    },
+  },
 ]

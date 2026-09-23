@@ -29,10 +29,17 @@ import {
   formatSshSessionsSummary,
 } from './ssh-sessions'
 import type { AiProfile } from '@shared/types'
+import { updateSettings as applyWebSearchSettings } from '../../../web-search/index'
+import {
+  executeWebSearchSettingsAction,
+  formatWebSearchDetail,
+  formatWebSearchSummary,
+  type WebSearchSettingsStore,
+} from './web-search-settings'
 
 // ==================== 配置项元数据 ====================
 
-type ConfigCategory = 'ui' | 'terminal' | 'agent' | 'im' | 'email' | 'calendar' | 'gateway' | 'proxy' | 'mcp' | 'knowledge'
+type ConfigCategory = 'ui' | 'terminal' | 'agent' | 'im' | 'email' | 'calendar' | 'gateway' | 'proxy' | 'mcp' | 'knowledge' | 'webSearch'
 
 interface ConfigMeta {
   key: string
@@ -113,6 +120,9 @@ const CONFIG_REGISTRY: ConfigMeta[] = [
   { key: 'sessionGroups', label: '会话分组', category: 'agent', type: 'array', readonly: true },
   /** 仅整体展示；增删改须用 config_mcp_server_* 工具，禁止 config_set 覆盖列表 */
   { key: 'mcpServers', label: 'MCP 连接器', category: 'mcp', type: 'array', readonly: true },
+
+  /** 只展示；换服务商、填密钥、改档位用 config_web_search，禁止整表覆盖 */
+  { key: 'webSearchSettings', label: '联网搜索', category: 'webSearch', type: 'object', readonly: true },
 ]
 
 const CONFIG_MAP = new Map(CONFIG_REGISTRY.map(m => [m.key, m]))
@@ -144,6 +154,8 @@ export async function executeConfigTool(
       return runAiProfileAndNotify(args, executor)
     case 'config_ssh_session':
       return runSshSessionAndNotify(args)
+    case 'config_web_search':
+      return runWebSearchAndNotify(args)
     case 'im_connect':
       return connectIM(args)
     case 'email_verify':
@@ -172,7 +184,7 @@ function listConfig(args: Record<string, unknown>): ToolResult {
     : CONFIG_REGISTRY.filter(m => m.category === category)
 
   if (items.length === 0) {
-    return { success: true, output: `没有找到分类 "${category}" 的配置项。可用分类: ui, terminal, agent, im, gateway, proxy, mcp, knowledge` }
+    return { success: true, output: `没有找到分类 "${category}" 的配置项。可用分类: ui, terminal, agent, im, gateway, proxy, mcp, knowledge, webSearch` }
   }
 
   const config = getConfigService()
@@ -194,6 +206,7 @@ function listConfig(args: Record<string, unknown>): ToolResult {
     proxy: '代理',
     mcp: 'MCP 连接器',
     knowledge: '知识库',
+    webSearch: '联网搜索',
   }
 
   const sections: string[] = []
@@ -222,6 +235,10 @@ function listConfig(args: Record<string, unknown>): ToolResult {
       }
       if (m.key === 'sessionGroups') {
         lines.push(formatSessionGroupsSummary(config))
+        continue
+      }
+      if (m.key === 'webSearchSettings') {
+        lines.push(formatWebSearchSummary(webSearchStore(config)))
         continue
       }
       const sensitive = isSensitiveKey(m.key)
@@ -269,6 +286,9 @@ function getConfig(args: Record<string, unknown>): ToolResult {
   if (key === 'sshSessions') {
     return { success: true, output: `**${meta.label}** (\`${key}\`)\n${formatSshSessionsDetail(config)}` }
   }
+  if (key === 'webSearchSettings') {
+    return { success: true, output: `**${meta.label}** (\`${key}\`)\n${formatWebSearchDetail(webSearchStore(config))}` }
+  }
   return { success: true, output: `**${meta.label}** (\`${key}\`) = ${formatValue(val, meta)}` }
 }
 
@@ -291,6 +311,8 @@ function setConfig(args: Record<string, unknown>): ToolResult {
         ? ' 请改用 config_ai_profile（action=add/update/delete）。'
         : key === 'sshSessions' || key === 'sessionGroups'
           ? ' 请改用 config_ssh_session（action=add/update/delete）。'
+        : key === 'webSearchSettings'
+          ? ' 请改用 config_web_search。'
         : key === 'emailAccounts'
           ? ' 请改用 email_account_add、email_account_delete。'
           : key === 'calendarAccounts'
@@ -634,6 +656,27 @@ async function runAiProfileAndNotify(
     inUseProfileId: executor.getActiveProfileId?.(),
   })
   if (result.success) notifyFrontendConfigChanged()
+  return result
+}
+
+function webSearchStore(config: ReturnType<typeof getConfigService>): WebSearchSettingsStore {
+  return {
+    getWebSearchSettings: () => config.get('webSearchSettings'),
+    setWebSearchSettings: (settings) => config.set('webSearchSettings', settings),
+    getAiProfiles: () => config.getAiProfiles(),
+    getActiveAiProfile: () => config.getActiveAiProfile(),
+  }
+}
+
+function runWebSearchAndNotify(args: Record<string, unknown>): ToolResult {
+  const config = getConfigService()
+  const store = webSearchStore(config)
+  const result = executeWebSearchSettingsAction(store, args)
+  if (result.success) {
+    const saved = config.get('webSearchSettings')
+    if (saved) applyWebSearchSettings(saved)
+    notifyFrontendConfigChanged()
+  }
   return result
 }
 

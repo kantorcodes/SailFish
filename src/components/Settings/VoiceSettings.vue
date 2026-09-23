@@ -122,12 +122,7 @@ onMounted(() => {
   if (props.initialSection === 'speechPack') {
     nextTick(() => scrollToSpeechPack())
   }
-  const s = configStore.webSearchSettings
-  webSearchEnabled.value = s.enabled
-  webSearchProviderId.value = s.providerId
-  webSearchApiKeys.value = { ...(s.apiKeys || {}) }
-  webSearchApiExtras.value = { ...(s.apiExtras || {}) }
-  nextTick(() => { webSearchInitializing = false })
+  applyWebSearchFromStore()
 })
 
 onUnmounted(() => {
@@ -431,6 +426,30 @@ const webSearchDirty = computed(() => {
     || JSON.stringify(webSearchApiKeys.value) !== JSON.stringify(s.apiKeys || {})
     || JSON.stringify(webSearchApiExtras.value) !== JSON.stringify(s.apiExtras || {})
 })
+
+let webSearchApplied = ''
+
+function applyWebSearchFromStore() {
+  const s = configStore.webSearchSettings
+  const next = JSON.stringify({
+    enabled: !!s.enabled,
+    providerId: s.providerId,
+    apiKeys: s.apiKeys || {},
+    apiExtras: s.apiExtras || {},
+  })
+  if (next === webSearchApplied) return
+  webSearchApplied = next
+  webSearchInitializing = true
+  webSearchEnabled.value = s.enabled
+  webSearchProviderId.value = s.providerId
+  webSearchApiKeys.value = { ...(s.apiKeys || {}) }
+  webSearchApiExtras.value = { ...(s.apiExtras || {}) }
+  nextTick(() => { webSearchInitializing = false })
+}
+
+watch(() => configStore.webSearchSettings, () => {
+  applyWebSearchFromStore()
+}, { deep: true })
 
 watch(webSearchEnabled, () => {
   if (webSearchInitializing) return
