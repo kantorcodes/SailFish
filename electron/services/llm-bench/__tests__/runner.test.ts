@@ -174,11 +174,8 @@ describe('llm-bench runner', () => {
           nth += 1
           await new Promise(resolve => setTimeout(resolve, nth * 50))
           const calls = [{ id: `c${nth}`, type: 'function' as const, function: { name: 'read_file', arguments: '{}' } }]
-          onToolCallFrom(calls)
+          onDone({ tool_calls: calls, finish_reason: 'tool_calls', usage: { prompt_tokens: 100 * nth, completion_tokens: 1, total_tokens: 1 } })
           return
-          function onToolCallFrom(list: typeof calls) {
-            onDone({ tool_calls: list, finish_reason: 'tool_calls', usage: { prompt_tokens: 100 * nth, completion_tokens: 1, total_tokens: 1 } })
-          }
         }
         onChunk('好')
         onDone({ content: '好', finish_reason: 'stop' })

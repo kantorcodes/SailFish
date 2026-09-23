@@ -1,3 +1,4 @@
+/* eslint-env node */
 /**
  * 探测原生 onnxruntime-node 能否加载。
  * 失败时把同名模块指到 onnxruntime-web，让 transformers.js 的静态 import 不再踩原生 DLL。
