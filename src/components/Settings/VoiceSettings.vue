@@ -406,6 +406,8 @@ function setWebSearchExtra(key: string, value: string) {
 
 const webSearchKeyUrls: Record<string, string> = {
   bocha: 'https://open.bochaai.com/api-keys',
+  zhipu: 'https://open.bigmodel.cn/usercenter/apikeys',
+  kimi: 'https://platform.kimi.com/console/api-keys',
   jina: 'https://jina.ai/api-dashboard/key-manager',
   tavily: 'https://app.tavily.com/home',
   google: 'https://developers.google.com/custom-search/v1/introduction',
@@ -757,7 +759,18 @@ function openWebSearchKeyUrl() {
             class="form-group"
           >
             <label class="form-label">{{ field.label }}</label>
+            <select
+              v-if="field.options?.length"
+              class="input"
+              :value="getWebSearchExtra(field.key) || field.defaultValue || ''"
+              @change="setWebSearchExtra(field.key, ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="opt in field.options" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
             <input
+              v-else
               :value="getWebSearchExtra(field.key)"
               type="text"
               class="input"

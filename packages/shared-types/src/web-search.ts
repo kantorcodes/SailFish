@@ -1,6 +1,6 @@
 /** Web Search 配置，前后端共享 */
 
-export type WebSearchProviderId = 'tavily' | 'jina' | 'bocha' | 'google'
+export type WebSearchProviderId = 'tavily' | 'jina' | 'bocha' | 'zhipu' | 'kimi' | 'google'
 
 export interface WebSearchSettings {
   enabled: boolean
@@ -27,6 +27,10 @@ export interface WebSearchExtraField {
   /** UI 上显示的字段名（英文，与 description 风格一致） */
   label: string
   placeholder?: string
+  /** 有选项时设置页用下拉，而不是自由输入 */
+  options?: { value: string; label: string }[]
+  /** 未填写时使用。有默认值的字段不阻塞「已配置」判断 */
+  defaultValue?: string
 }
 
 export const WEB_SEARCH_PROVIDERS: {
@@ -37,6 +41,42 @@ export const WEB_SEARCH_PROVIDERS: {
   extraFields?: WebSearchExtraField[]
 }[] = [
   { id: 'bocha', name: 'Bocha (博查)', requiresApiKey: true, description: 'AI search engine, best for China users' },
+  {
+    id: 'zhipu',
+    name: 'Zhipu (智谱)',
+    requiresApiKey: true,
+    description: 'Domestic web search, separate from the chat model. Default engine is the cheaper basic tier.',
+    extraFields: [
+      {
+        key: 'engine',
+        label: 'Search engine',
+        defaultValue: 'search_std',
+        options: [
+          { value: 'search_std', label: 'Basic (search_std)' },
+          { value: 'search_pro', label: 'Pro (search_pro)' },
+          { value: 'search_pro_sogou', label: 'Sogou' },
+          { value: 'search_pro_quark', label: 'Quark' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi (月之暗面)',
+    requiresApiKey: true,
+    description: 'Domestic web search, separate from the chat model. Basic returns titles and snippets; Pro returns the passages most relevant to the query.',
+    extraFields: [
+      {
+        key: 'tier',
+        label: 'Tier',
+        defaultValue: 'basic',
+        options: [
+          { value: 'basic', label: 'Basic' },
+          { value: 'pro', label: 'Pro' },
+        ],
+      },
+    ],
+  },
   { id: 'tavily', name: 'Tavily', requiresApiKey: true, description: 'Best AI agent search experience' },
   { id: 'jina', name: 'Jina', requiresApiKey: true, description: 'Search + URL reader, returns Markdown' },
   {

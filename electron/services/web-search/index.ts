@@ -8,6 +8,8 @@ import type { WebSearchSettings, WebSearchProviderId } from '@shared/types'
 import { DEFAULT_WEB_SEARCH_SETTINGS, WEB_SEARCH_PROVIDERS } from '@shared/types'
 import { createLogger } from '../../utils/logger'
 import { BochaProvider } from './providers/bocha'
+import { ZhipuProvider } from './providers/zhipu'
+import { KimiProvider } from './providers/kimi'
 import { JinaProvider } from './providers/jina'
 import { TavilyProvider } from './providers/tavily'
 import { GoogleProvider } from './providers/google'
@@ -64,6 +66,7 @@ export function isConfigured(): boolean {
   if (providerMeta.requiresApiKey && !getApiKey()) return false
   if (providerMeta.extraFields) {
     for (const f of providerMeta.extraFields) {
+      if (f.defaultValue) continue
       if (!getApiExtra(currentSettings.providerId, f.key)) return false
     }
   }
@@ -100,6 +103,14 @@ export async function initWebSearch(settings: WebSearchSettings): Promise<void> 
   updateSettings(settings)
 
   registerProvider(new BochaProvider(() => getApiKey('bocha')))
+  registerProvider(new ZhipuProvider(
+    () => getApiKey('zhipu'),
+    () => getApiExtra('zhipu', 'engine'),
+  ))
+  registerProvider(new KimiProvider(
+    () => getApiKey('kimi'),
+    () => getApiExtra('kimi', 'tier'),
+  ))
   registerProvider(new JinaProvider(() => getApiKey('jina')))
   registerProvider(new TavilyProvider(() => getApiKey('tavily')))
   registerProvider(new GoogleProvider(

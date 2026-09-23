@@ -1,7 +1,7 @@
 /**
  * Web Search Provider 类型定义
  *
- * 可插拔的搜索接口，内置 DuckDuckGo / Bocha / Bing / Jina / Tavily，
+ * 可插拔的搜索接口。内置服务商在 initWebSearch 里注册，
  * 插件可通过 registerProvider 注册自定义 provider。
  */
 

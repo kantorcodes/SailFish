@@ -1,6 +1,10 @@
 # Web Search Service — 联网搜索服务
 
-> Last verified: 2026-04-26
+> Last verified: 2026-09-23
+
+## 设计目标
+
+联网搜索要能换成国内可单独采购的接口，不能只绑在博查上。智谱和 Kimi 提供的是与对话模型分开的搜索接口：填各自的密钥就能用，检索结果是结构化的标题、链接和摘要，方便核对来源。档位不填时走较便宜的一档（智谱基础版、Kimi Basic）；想要更高召回，或只要和问题最相关的正文片段时，在设置里改档位即可。不接「写在模型里面、由模型自己决定搜不搜」的内置联网，那种检索过程看不见，也换不了模型。
 
 ## 职责
 
@@ -20,6 +24,8 @@ electron/services/web-search/
   ├── types.ts                WebSearchProvider / WebSearchOptions / WebSearchResult
   └── providers/
       ├── bocha.ts            博查（国内 AI 搜索，默认）
+      ├── zhipu.ts            智谱（独立搜索，默认可选基础版）
+      ├── kimi.ts             Kimi（独立搜索，Basic / Pro）
       ├── tavily.ts           Tavily（AI Agent 体验最好）
       ├── jina.ts             Jina（支持 URL 阅读，返回 Markdown）
       └── google.ts           Google Custom Search（需 API Key + cx，国内需代理）
