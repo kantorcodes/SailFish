@@ -24,6 +24,7 @@ import { showConfirm, showAlert } from './useConfirm'
 import { toast } from './useToast'
 import { resolveExactSlash } from './slash-commands'
 import { formatAccelerator } from '../utils/shortcut'
+import { coalescePendingHandoff, decideFollowUpDrain, mergePendingIntoQueue } from './follow-up-drain'
 
 const log = createLogger('Agent')
 
@@ -1253,6 +1254,13 @@ export function useAgentMode(
     const injectIntoCurrentRun = await checkInjectIntoCurrentRun()
     const compactSlash = resolveExactSlash(message)
     if (injectIntoCurrentRun) {
+      // 排队项是「上一轮结束后的下一轮」，不是插进当前这场。
+      // 这时若还判成「正在跑」，插进去会用已经清空的输入框，图和附件都丢，队列里也不见了。
+      if (queued && !options?.enqueue) {
+        putBackQueued()
+        if (!isAgentRunning.value) scheduleNextFollowUp(tabId)
+        return
+      }
       if (compactSlash?.def.id === 'compact' && !options?.enqueue) {
         putBackQueued()
         toast.warning(t('ai.slashCompactRunning', { shortcut: queueShortcutLabel() }))
@@ -1415,6 +1423,8 @@ export function useAgentMode(
     // getDocumentContext 依赖 uploadedDocs，须在其完成后再 clearAttachments
 
     // 立即进入运行态 + 乐观 user_task，用户消息与「正在准备...」零等待上墙
+    // 上一轮的收尾若晚到，不能把这一轮的「正在跑」清掉，否则排队会以为又空了再开一条。
+    const epoch = ++agentRunEpoch
     terminalStore.clearAgentState(tabId, true)
     const isNewSession = !agentState.value?.sessionId
     if (isNewSession) {
@@ -1464,24 +1474,25 @@ export function useAgentMode(
       }
     }
 
-    // 异步上下文在 UI 反馈之后并行获取，不阻塞首屏
-    const [hostId, documentContext] = await Promise.all([
-      getHostIdByTabId(tabId),
-      queued
-        ? Promise.resolve(queued.documentContext || '')
-        : getDocumentContext()
-    ])
-
-    if (!queued && attachments.length > 0) {
-      attachmentCallbacks?.clearAttachments()
-    }
-
-    // 首次运行时自动探测主机信息（后台执行，不阻塞）
-    autoProbeHostProfile().catch(e => {
-      log.warn('主机探测失败:', e)
-    })
-
+    // 异步上下文在 UI 反馈之后并行获取，不阻塞首屏。
+    // 放进同一段收尾里：这里失败也要把「正在跑」清掉，否则排队会一直等下去。
     try {
+      const [hostId, documentContext] = await Promise.all([
+        getHostIdByTabId(tabId),
+        queued
+          ? Promise.resolve(queued.documentContext || '')
+          : getDocumentContext()
+      ])
+
+      if (!queued && attachments.length > 0) {
+        attachmentCallbacks?.clearAttachments()
+      }
+
+      // 首次运行时自动探测主机信息（后台执行，不阻塞）
+      autoProbeHostProfile().catch(e => {
+        log.warn('主机探测失败:', e)
+      })
+
       // 根据模式选择 API
       let result: { success: boolean; result?: string; error?: string; aborted?: boolean }
 
@@ -1571,13 +1582,17 @@ export function useAgentMode(
       }
       terminalStore.setAgentFinalResult(tabId, finalContent)
     } finally {
-      // 后端未推送 user_task（IPC 失败等）时固化乐观步骤，避免 __optimistic_ 前缀残留
-      terminalStore.commitOptimisticAgentSteps(tabId)
-      finalizeAgentRunWithScrollSettle(tabId)
+      // 上一轮的收尾若晚于下一轮开工，不能清掉下一轮的运行态
+      if (epoch === agentRunEpoch) {
+        // 后端未推送 user_task（IPC 失败等）时固化乐观步骤，避免 __optimistic_ 前缀残留
+        terminalStore.commitOptimisticAgentSteps(tabId)
+        finalizeAgentRunWithScrollSettle(tabId)
+      }
     }
 
-    // 完成后使用智能滚动
-    await scrollToBottomIfNeeded()
+    if (epoch === agentRunEpoch) {
+      await scrollToBottomIfNeeded()
+    }
   }
 
   const abortAgent = async () => {
@@ -1639,6 +1654,7 @@ export function useAgentMode(
     const title = extra
       ? `${t('ai.toolNames.compress_context')}：${extra}`
       : t('ai.toolNames.compress_context')
+    const epoch = ++agentRunEpoch
     terminalStore.setAgentRunning(tabId, true, agentKey, title)
     try {
       return await window.electronAPI.agent.compactContext({
@@ -1650,8 +1666,10 @@ export function useAgentMode(
         hint
       })
     } finally {
-      terminalStore.finalizeAgentRunState(tabId)
-      if (!isAgentRunning.value) scheduleNextFollowUp(tabId)
+      if (epoch === agentRunEpoch) {
+        terminalStore.finalizeAgentRunState(tabId)
+        if (!isAgentRunning.value) scheduleNextFollowUp(tabId)
+      }
     }
   }
 
@@ -1687,6 +1705,8 @@ export function useAgentMode(
   }
 
   let followUpDrainTimer: ReturnType<typeof setTimeout> | null = null
+  /** 后开的一轮序号更大。先结束的那一轮不能把后一轮的「正在跑」清掉。 */
+  let agentRunEpoch = 0
 
   const cancelFollowUpDrain = () => {
     if (followUpDrainTimer) {
@@ -1703,10 +1723,19 @@ export function useAgentMode(
     terminalStore.requestAgentCompleteTabAttentionSkip(tabId)
     followUpDrainTimer = setTimeout(() => {
       followUpDrainTimer = null
-      if (!terminalStore.tabs.some(tab => tab.id === tabId)) return
-      if (isAgentRunning.value) return
       const next = followUpQueue.value[0]
-      if (!next || next.editing) return
+      const decision = decideFollowUpDrain({
+        hasQueued: !!next,
+        headEditing: !!next?.editing,
+        tabAlive: terminalStore.tabs.some(tab => tab.id === tabId),
+        agentRunning: isAgentRunning.value,
+      })
+      // 还在忙就留在队列里。空闲的那一下会再来排，不能这一拍直接扔掉。
+      if (decision === 'wait') {
+        log.warn('排队的下一条先不开：上一轮结束时还显示在忙，等空闲后会自动开始')
+        return
+      }
+      if (decision !== 'start' || !next) return
       if (!takeFollowUp(next.id)) return
       log.info('任务结束，启动排队中的下一条:', next.message)
       void runAgent(next.message, {
@@ -1716,6 +1745,13 @@ export function useAgentMode(
     }, 100)
     return true
   }
+
+  // 完成事件若没排上（或排上时还显示在忙），只要从「正在跑」回到空闲，就再试一次。
+  watch(isAgentRunning, (running, wasRunning) => {
+    if (!wasRunning || running) return
+    const tabId = currentTabId.value
+    if (tabId) scheduleNextFollowUp(tabId)
+  })
 
   /** 把排队中的一条追加进当前这场（与回车补充同一条路）；闲着则马上开下一件。不打断正在跑的任务。 */
   const insertFollowUp = async (id: string) => {
@@ -2155,22 +2191,26 @@ export function useAgentMode(
     })
 
     // 监听完成
-    cleanupCompleteListener = window.electronAPI.agent.onComplete((data: { agentId: string; ptyId?: string; result: string; pendingUserMessages?: string[] }) => {
+    cleanupCompleteListener = window.electronAPI.agent.onComplete((data: { agentId: string; ptyId?: string; result: string; pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff> }) => {
       // 与 onStep 同一套路由：助手完成事件的 ptyId 是 agentId，不能只按终端窗格找
       const foundTabId = resolveTabIdForAgentEvent(data.agentId, data.ptyId)
       if (foundTabId !== currentTabId.value) return
 
       finalizeAgentRunWithScrollSettle(currentTabId.value)
-      // 如果有未处理的用户消息（用户在 Agent 总结时发送的），自动作为新任务启动
-      if (data.pendingUserMessages && data.pendingUserMessages.length > 0) {
+      // 上一轮收尾时没吃进去的补充，排到队首，跟已经在排队的一起开下一轮。
+      // 图和附件在这条交接里要留下；只剩文字的旧事件也能接着用。
+      const pending = coalescePendingHandoff(data.pendingUserMessages)
+      if (pending && foundTabId) {
         terminalStore.requestAgentCompleteTabAttentionSkip(foundTabId)
-        const pendingMessage = data.pendingUserMessages.join('\n')
-        log.info('发现未处理的用户消息，将作为新任务启动:', pendingMessage)
-        setTimeout(() => {
-          inputText.value = pendingMessage
-          runAgent()
-        }, 100)
-        return
+        followUpQueue.value = mergePendingIntoQueue(followUpQueue.value, pending, (item) => ({
+          id: `followup_pending_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          message: item.message,
+          images: item.images,
+          previewImages: item.images,
+          attachments: item.attachments,
+          documentContext: item.documentContext,
+          workbenchContext: item.workbenchContext,
+        }))
       }
 
       if (foundTabId && scheduleNextFollowUp(foundTabId)) return

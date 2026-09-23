@@ -18,6 +18,7 @@ export type {
   PendingConfirmation,
   PendingSecureInput,
   AttachmentInfo,
+  PendingUserHandoff,
   TokenUsage,
   CommandRiskPolicy,
   AgentPaneInfo,
@@ -27,7 +28,7 @@ export type {
 import type { AgentContext } from '@shared/types'
 export type { AgentContext }
 
-import type { ExecutionMode, PendingConfirmation, PendingSecureInput, AgentStep, AgentContextBar, AgentPlan, AttachmentInfo, TokenUsage, CommandRiskPolicy } from '@shared/types'
+import type { ExecutionMode, PendingConfirmation, PendingSecureInput, AgentStep, AgentContextBar, AgentPlan, AttachmentInfo, TokenUsage, CommandRiskPolicy, PendingUserHandoff } from '@shared/types'
 
 // Agent 配置
 export interface AgentConfig {
@@ -260,7 +261,7 @@ export interface AgentCallbacks {
   onNeedConfirm?: (confirmation: PendingConfirmationInternal) => void
   /** 需要安全输入框时触发（如技能 API Key）。前端弹框，值直接写入加密存储，不经过 LLM。 */
   onNeedSecureInput?: (request: PendingSecureInputInternal) => void
-  onComplete?: (agentId: string, result: string, pendingUserMessages?: string[], extra?: { aborted?: boolean }) => void
+  onComplete?: (agentId: string, result: string, pendingUserMessages?: Array<string | PendingUserHandoff>, extra?: { aborted?: boolean }) => void
   onError?: (agentId: string, error: string, extra?: { aborted?: boolean }) => void
   onTextChunk?: (agentId: string, chunk: string) => void
   /** 当前对话因模型不可用已换到下一个（不改默认模型） */

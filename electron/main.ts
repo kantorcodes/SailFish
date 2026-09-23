@@ -378,7 +378,7 @@ import { initLogging, setLogLevel as setBackendLogLevel, getLogDir, createLogger
 import { serializeAgentStepForIpc } from './utils/agent-step-ipc'
 import { toSafeErrorMessage } from './utils/safe-error-message'
 import { XshellImportService } from './services/xshell-import.service'
-import type { AgentStep, AgentContext } from './services/agent/types'
+import type { AgentStep, AgentContext, PendingUserHandoff } from './services/agent/types'
 import type { PendingConfirmation, ExecutionMode } from './services/agent/types'
 import type { OrchestratorConfig } from './services/agent/orchestrator-types'
 import { HistoryService, AgentRecord } from './services/history.service'
@@ -4205,7 +4205,7 @@ ipcMain.handle('agent:run', async (event, { ptyId, message, context, config, pro
         body: t('notification.skillEnvBody', { envName: request.envName })
       })
     },
-    onComplete: (agentId: string, result: string, pendingUserMessages?: string[], extra?: { aborted?: boolean }) => {
+    onComplete: (agentId: string, result: string, pendingUserMessages?: Array<string | PendingUserHandoff>, extra?: { aborted?: boolean }) => {
       const newBondMilestones = sensorService?.appLifecycle.notifyConversationCompleted()
       if (!event.sender.isDestroyed()) {
         event.sender.send('agent:complete', {
@@ -4560,7 +4560,7 @@ ipcMain.handle('agent:runStandalone', async (event, { agentId, message, context,
         body: t('notification.skillEnvBody', { envName: request.envName })
       })
     },
-    onComplete: (_runId: string, result: string, pendingUserMessages?: string[], extra?: { aborted?: boolean }) => {
+    onComplete: (_runId: string, result: string, pendingUserMessages?: Array<string | PendingUserHandoff>, extra?: { aborted?: boolean }) => {
       const newBondMilestones = sensorService?.appLifecycle.notifyConversationCompleted()
       if (!event.sender.isDestroyed()) {
         event.sender.send('agent:complete', {

@@ -1761,7 +1761,13 @@ export abstract class Agent {
     }
 
     // 触发完成回调
-    this.callbacks?.onComplete?.(run.id, result, run.pendingUserMessages.map(m => m.message), { aborted: run.aborted })
+    this.callbacks?.onComplete?.(run.id, result, run.pendingUserMessages.map(m => ({
+      message: m.message,
+      ...(m.images?.length ? { images: m.images } : {}),
+      ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+      ...(m.documentContext ? { documentContext: m.documentContext } : {}),
+      ...(m.workbenchContext ? { workbenchContext: m.workbenchContext } : {}),
+    })), { aborted: run.aborted })
   }
   
   // ==================== 会话持久化 ====================

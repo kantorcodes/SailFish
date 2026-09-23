@@ -234,7 +234,7 @@ export class WebChatService {
           reasons: confirmation.reasons
         })
       },
-      onComplete: (_runId: string, result: string, pendingUserMessages?: string[]) => {
+      onComplete: (_runId: string, result: string, pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff>) => {
         this.onAgentComplete(result)
         this.sendToDesktop('agent:complete', { agentId: WebChatService.DESKTOP_AGENT_ID, result, pendingUserMessages })
       },

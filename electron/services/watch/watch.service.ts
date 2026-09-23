@@ -736,7 +736,7 @@ export class WatchService {
           if (!errorMessage) errorMessage = step.content
         }
       },
-      onComplete: (_runId: string, result: string, pendingUserMessages?: string[]) => {
+      onComplete: (_runId: string, result: string, pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff>) => {
         if (shouldSendCompletion && mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('agent:complete', { agentId, result, pendingUserMessages })
         }

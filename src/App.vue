@@ -922,7 +922,7 @@ onMounted(async () => {
   cleanupAgentCompleteForProactive = window.electronAPI.agent.onComplete((data: {
     agentId: string
     ptyId?: string
-    pendingUserMessages?: string[]
+    pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff>
     aborted?: boolean
     newBondMilestones?: string[]
     bondMetrics?: BondMetrics

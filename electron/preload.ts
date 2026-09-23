@@ -1173,7 +1173,7 @@ const electronAPI = {
       agentId: string
       ptyId?: string
       result: string
-      pendingUserMessages?: string[]
+      pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff>
       aborted?: boolean
       newBondMilestones?: string[]
       bondMetrics?: BondMetrics
@@ -1182,7 +1182,7 @@ const electronAPI = {
         agentId: string
         ptyId?: string
         result: string
-        pendingUserMessages?: string[]
+        pendingUserMessages?: Array<string | import('@shared/types').PendingUserHandoff>
         aborted?: boolean
         newBondMilestones?: string[]
         bondMetrics?: BondMetrics

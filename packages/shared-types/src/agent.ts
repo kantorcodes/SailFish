@@ -212,6 +212,19 @@ export interface AgentPlan {
   updatedAt: number
 }
 
+/**
+ * 一轮已经收尾、还没送进模型的用户补充。
+ * 界面用它开下一轮；图片和附件必须一起带上，不能只留文字。
+ * 旧的完成事件只传字符串，两种形状都要认。
+ */
+export interface PendingUserHandoff {
+  message: string
+  images?: string[]
+  attachments?: AttachmentInfo[]
+  documentContext?: string
+  workbenchContext?: import('./workbench').WorkbenchContext
+}
+
 /** 用户消息附带的文件附件元信息（仅用于 UI 展示，不含文件内容） */
 export interface AttachmentInfo {
   filename: string
