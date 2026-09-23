@@ -267,6 +267,10 @@ export default {
       save: 'Save',
       saved: 'Saved',
       unsaved: 'Settings modified, please save',
+      useModelKey: {
+        zhipu: 'Using the Zhipu key from model settings. Leave this blank unless you want a different key.',
+        kimi: 'Using the Kimi key from model settings. Leave this blank unless you want a different key.',
+      },
       providers: {
         bocha: 'Domestic search with strong Chinese results. This is the default.',
         zhipu: 'Domestic search, separate from the chat model. Leave the tier unchanged to use the cheaper basic engine.',

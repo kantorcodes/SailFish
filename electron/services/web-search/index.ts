@@ -5,7 +5,8 @@
 
 import type { WebSearchProvider, WebSearchOptions, WebSearchResult } from './types'
 import type { WebSearchSettings, WebSearchProviderId } from '@shared/types'
-import { DEFAULT_WEB_SEARCH_SETTINGS, WEB_SEARCH_PROVIDERS } from '@shared/types'
+import { DEFAULT_WEB_SEARCH_SETTINGS, WEB_SEARCH_PROVIDERS, webSearchKeyFromModelProfiles } from '@shared/types'
+import { getConfigService } from '../config.service'
 import { createLogger } from '../../utils/logger'
 import { BochaProvider } from './providers/bocha'
 import { ZhipuProvider } from './providers/zhipu'
@@ -48,10 +49,18 @@ export function getSettings(): WebSearchSettings {
   return { ...currentSettings }
 }
 
-/** 获取指定 provider 的 API Key */
+/** 获取指定 provider 的 API Key。搜索没单独填时，智谱和 Kimi 沿用已配置的模型密钥。 */
 export function getApiKey(providerId?: string): string {
   const id = providerId || currentSettings.providerId
-  return currentSettings.apiKeys?.[id as WebSearchProviderId] || ''
+  const own = currentSettings.apiKeys?.[id as WebSearchProviderId]?.trim() || ''
+  if (own) return own
+  try {
+    const config = getConfigService()
+    return webSearchKeyFromModelProfiles(id, config.getAiProfiles(), config.getActiveAiProfile())
+  } catch (error) {
+    log.warn('Failed to reuse model API key:', error)
+    return ''
+  }
 }
 
 /** 获取指定 provider 的额外配置字段（如 Google 的 cx） */

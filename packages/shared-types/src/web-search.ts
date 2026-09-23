@@ -1,6 +1,40 @@
 /** Web Search 配置，前后端共享 */
 
+import type { AiProfile } from './ai'
+
 export type WebSearchProviderId = 'tavily' | 'jina' | 'bocha' | 'zhipu' | 'kimi' | 'google'
+
+/**
+ * 这些搜索和对话模型共用同一把开放平台密钥。
+ * 用接口地址的主机名对应，不用名字或描述去猜。
+ */
+const WEB_SEARCH_MODEL_HOSTS: Partial<Record<WebSearchProviderId, readonly string[]>> = {
+  zhipu: ['open.bigmodel.cn'],
+  kimi: ['api.moonshot.cn'],
+}
+
+/** 搜索没单独填密钥时，用已经配好的同厂商模型密钥。当前正在用的模型优先。 */
+export function webSearchKeyFromModelProfiles(
+  providerId: string,
+  profiles: ReadonlyArray<Pick<AiProfile, 'id' | 'apiUrl' | 'apiKey'>>,
+  activeProfileId?: string,
+): string {
+  const hosts = WEB_SEARCH_MODEL_HOSTS[providerId as WebSearchProviderId]
+  if (!hosts) return ''
+  const matches = profiles.filter(profile => {
+    const key = profile.apiKey?.trim()
+    if (!key) return false
+    let hostname = ''
+    try {
+      hostname = new URL(profile.apiUrl).hostname
+    } catch {
+      return false
+    }
+    return hosts.includes(hostname)
+  })
+  const active = matches.find(profile => profile.id === activeProfileId)
+  return (active ?? matches[0])?.apiKey.trim() || ''
+}
 
 export interface WebSearchSettings {
   enabled: boolean

@@ -79,7 +79,7 @@ export const AI_TEMPLATES: AiTemplate[] = [
     apiUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     model: 'glm-5.3',
     descKey: 'aiSettings.templates.zhipu',
-    keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    keyUrl: 'https://open.bigmodel.cn/apikey/platform',
     contextLength: 1_000_000,
     isLocal: false,
     needsApiKey: true,

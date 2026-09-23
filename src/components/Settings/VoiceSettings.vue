@@ -5,7 +5,7 @@ import { ExternalLink, Play, RotateCcw, Upload, Volume2 } from 'lucide-vue-next'
 import { useConfigStore } from '../../stores/config'
 import { applyMasterCueEnabled, clampCueVolume, CUE_SOUND_KINDS, CUE_VOLUME_MAX, CUE_VOLUME_STEP, type CueSoundKind } from '@shared/types'
 import { playCueSound } from '../../composables/useCueSound'
-import { WEB_SEARCH_PROVIDERS, type WebSearchProviderId } from '@shared/types'
+import { WEB_SEARCH_PROVIDERS, webSearchKeyFromModelProfiles, type WebSearchProviderId } from '@shared/types'
 import {
   useSpeechPackInstall,
   retainSpeechPackInstallUi,
@@ -406,13 +406,24 @@ function setWebSearchExtra(key: string, value: string) {
 
 const webSearchKeyUrls: Record<string, string> = {
   bocha: 'https://open.bochaai.com/api-keys',
-  zhipu: 'https://open.bigmodel.cn/usercenter/apikeys',
+  zhipu: 'https://open.bigmodel.cn/apikey/platform',
   kimi: 'https://platform.kimi.com/console/api-keys',
   jina: 'https://jina.ai/api-dashboard/key-manager',
   tavily: 'https://app.tavily.com/home',
   google: 'https://developers.google.com/custom-search/v1/introduction',
 }
 const webSearchKeyUrl = computed(() => webSearchKeyUrls[webSearchProviderId.value] || '')
+
+const webSearchModelKeyHint = computed(() => {
+  if (webSearchApiKey.value.trim()) return ''
+  const reused = webSearchKeyFromModelProfiles(
+    webSearchProviderId.value,
+    configStore.aiProfiles,
+    configStore.activeAiProfileId,
+  )
+  if (!reused) return ''
+  return t(`settings.webSearch.useModelKey.${webSearchProviderId.value}`)
+})
 
 const webSearchDirty = computed(() => {
   const s = configStore.webSearchSettings
@@ -751,6 +762,7 @@ function openWebSearchKeyUrl() {
               </button>
             </div>
             <input v-model="webSearchApiKey" type="password" class="input" placeholder="API Key" />
+            <span v-if="webSearchModelKeyHint" class="form-hint">{{ webSearchModelKeyHint }}</span>
           </div>
 
           <div
