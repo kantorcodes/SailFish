@@ -105,7 +105,7 @@ The window is three columns: new chat, Reach, Terminal, and recent conversations
 |---------|-------------|
 | 🛒 **Skill Market & Plugins** | One-click community skills; plugins extend tools, providers, and IM channels |
 | 🔌 **Connectors (MCP)** | Databases, APIs, and other external tools; connect when enabled, load on demand |
-| 🔍 **Web Search** | Bocha, Tavily, Google, Jina, and more |
+| 🔍 **Web Search** | Bocha, Zhipu, Kimi, Tavily, Google, Jina, and more |
 | 🖥️ **CLI** | `sailfish` runs the full backend headless; share desktop data or isolate with a sandbox |
 | 💾 **Your data** | Full backup and restore; move the data directory to another disk; copy a redacted crash summary |
 | 🔒 **Always there** | System tray and launch-at-login |
@@ -158,7 +158,7 @@ SailFish does not ship a model — you bring an API key. Settings include one-cl
 - **Local / offline**: Ollama (preset `qwen3.5:9b`; small context windows struggle with multi-step work)
 - **More**: Zhipu GLM-5.3, Kimi K3, MiniMax M3, Mistral Large, and any OpenAI-compatible endpoint
 
-A text-only model can be paired with a vision model: pictures go there, then conversation returns. For web search, Bocha is a good default in China. Step-by-step: [First setup](https://www.sfterm.com/en/docs/getting-started/first-setup/).
+A text-only model can be paired with a vision model: pictures go there, then conversation returns. For web search in China, Bocha, Zhipu, or Kimi all work. Step-by-step: [First setup](https://www.sfterm.com/en/docs/getting-started/first-setup/).
 
 ### Development
 

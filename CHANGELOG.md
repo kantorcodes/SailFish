@@ -2,7 +2,26 @@
 
 All notable changes to SailFish will be documented in this file.
 
-## v11.11.0 (2026-09-16) (Latest)
+## v11.12.0 (2026-09-23) (Latest)
+
+> Web search can use Zhipu or Kimi, and you can ask the assistant to switch. A benchmark compares models and machines on the same set of tasks.
+
+### New Features
+- 🎯 **Web search adds Zhipu and Kimi**: Either works in China. Search and chat use separate models; the cheaper tier is the default, and Settings can switch to higher recall. The same platform key does not need to be entered again for search. You can also ask the assistant to see which provider is in use and switch it. Keys are never read back, and switching one does not clear the others
+- 🎯 **Benchmark console**: Compare models and machines on the same tasks. It measures time to first token and output speed across context lengths, then tool round-trips and three concurrent requests, and finishes with a score you can compare. Each length runs three times by default and keeps the middle result. Lengths stay fixed so a casual edit cannot break the comparison
+
+### Bug Fixes
+- 🐛 **A stuck watch no longer blocks the next run**; the overview duration counts from when this run started
+- 🐛 **A message with an image that is already on screen is no longer erased by a later one**
+- 🐛 **A dispatch card shows only this batch**, not the whole roster
+- 🐛 **The next queued message starts on its own**, and its images go with it
+- 🐛 **You can still type while context is being compacted**; anything sent then waits in the queue and continues afterward
+- 🐛 **Unsupported artifact types say which kinds can be opened**, instead of pointing at the tool that generates slides
+- 🐛 **When a connector cannot reach the network, the message is readable**, and you can retry all of them at once
+- 🐛 **Semantic search still works without a discrete GPU**, only more slowly
+- 🐛 **Creating a file that already exists saves over it**, instead of rewriting the whole piece
+
+## v11.11.0 (2026-09-16)
 
 > Send and queue shortcuts can be changed. Multiple terminal panes can be rearranged. Context compacting is more complete, and you can compact by hand.
 
