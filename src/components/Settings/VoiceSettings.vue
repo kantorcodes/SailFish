@@ -735,7 +735,7 @@ function openWebSearchKeyUrl() {
                 {{ p.name }}
               </option>
             </select>
-            <span class="form-hint">{{ webSearchSelectedProvider?.description }}</span>
+            <span class="form-hint">{{ t(`settings.webSearch.providers.${webSearchProviderId}`) }}</span>
           </div>
 
           <div v-if="webSearchSelectedProvider?.requiresApiKey" class="form-group">
@@ -758,7 +758,7 @@ function openWebSearchKeyUrl() {
             :key="field.key"
             class="form-group"
           >
-            <label class="form-label">{{ field.label }}</label>
+            <label class="form-label">{{ t(`settings.webSearch.fields.${field.key}`) }}</label>
             <select
               v-if="field.options?.length"
               class="input"
@@ -766,7 +766,7 @@ function openWebSearchKeyUrl() {
               @change="setWebSearchExtra(field.key, ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="opt in field.options" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
+                {{ t(`settings.webSearch.options.${opt.value}`) }}
               </option>
             </select>
             <input
@@ -774,7 +774,7 @@ function openWebSearchKeyUrl() {
               :value="getWebSearchExtra(field.key)"
               type="text"
               class="input"
-              :placeholder="field.placeholder || field.label"
+              :placeholder="t(`settings.webSearch.placeholders.${field.key}`)"
               @input="setWebSearchExtra(field.key, ($event.target as HTMLInputElement).value)"
             />
           </div>

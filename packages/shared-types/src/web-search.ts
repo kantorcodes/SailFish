@@ -24,7 +24,7 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 export interface WebSearchExtraField {
   /** 字段 key，会作为 apiExtras[providerId][key] 存取 */
   key: string
-  /** UI 上显示的字段名（英文，与 description 风格一致） */
+  /** 字段名。设置页按 key 走翻译，不直接显示这句 */
   label: string
   placeholder?: string
   /** 有选项时设置页用下拉，而不是自由输入 */

@@ -261,12 +261,36 @@ export default {
     },
     webSearch: {
       title: 'Web 搜索',
-      description: '启用后，AI Agent 可搜索互联网获取实时信息。选择一个搜索引擎并配置 API Key（部分引擎需要额外字段，如 Google 需要 Search Engine ID）。',
+      description: '启用后，AI 可以搜索互联网获取实时信息。选一个搜索服务并填写密钥。有的还要再选档位，或额外填一项，比如 Google 要填搜索引擎 ID。',
       provider: '搜索引擎',
       getKey: '获取密钥',
       save: '保存',
       saved: '已保存',
       unsaved: '设置已修改，请保存',
+      providers: {
+        bocha: '国内搜索，中文效果好。现在默认用这个。',
+        zhipu: '国内搜索，和对话模型分开。不改下面的档位时，用较便宜的基础版。',
+        kimi: '国内搜索，和对话模型分开。Basic 返回标题和摘要；Pro 返回和问题最相关的正文片段。',
+        tavily: '面向 AI 的搜索，服务器在境外。',
+        jina: '能搜索，也能把网页读成 Markdown，服务器在境外。',
+        google: 'Google 官方搜索。除了密钥，还要填搜索引擎 ID。每天免费 100 次，国内访问需要自己处理网络。',
+      },
+      fields: {
+        engine: '搜索档位',
+        tier: '搜索档位',
+        cx: '搜索引擎 ID（cx）',
+      },
+      placeholders: {
+        cx: '例如 017576662512468239146:omuauf_lfve',
+      },
+      options: {
+        search_std: '基础版',
+        search_pro: '高阶版',
+        search_pro_sogou: '搜狗',
+        search_pro_quark: '夸克',
+        basic: 'Basic',
+        pro: 'Pro',
+      },
     },
     gateway: {
       title: 'Web 服务',

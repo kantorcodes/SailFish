@@ -261,12 +261,36 @@ export default {
     },
     webSearch: {
       title: 'Web Search',
-      description: 'When enabled, AI Agent can search the web for real-time information. Choose a search engine and configure the API key (some engines need extra fields, e.g. Google requires a Search Engine ID).',
+      description: 'When enabled, the AI can search the web for current information. Pick a search service and enter its key. Some also need a tier, or one extra field — Google needs a Search Engine ID.',
       provider: 'Search Engine',
       getKey: 'Get Key',
       save: 'Save',
       saved: 'Saved',
       unsaved: 'Settings modified, please save',
+      providers: {
+        bocha: 'Domestic search with strong Chinese results. This is the default.',
+        zhipu: 'Domestic search, separate from the chat model. Leave the tier unchanged to use the cheaper basic engine.',
+        kimi: 'Domestic search, separate from the chat model. Basic returns titles and snippets; Pro returns the passages most relevant to the question.',
+        tavily: 'Search built for AI agents. Servers are outside China.',
+        jina: 'Search plus page reading, returned as Markdown. Servers are outside China.',
+        google: 'Google’s official search. Needs an API key and a Search Engine ID. 100 free queries a day. Access from China needs your own network setup.',
+      },
+      fields: {
+        engine: 'Tier',
+        tier: 'Tier',
+        cx: 'Search Engine ID (cx)',
+      },
+      placeholders: {
+        cx: 'e.g. 017576662512468239146:omuauf_lfve',
+      },
+      options: {
+        search_std: 'Basic',
+        search_pro: 'Pro',
+        search_pro_sogou: 'Sogou',
+        search_pro_quark: 'Quark',
+        basic: 'Basic',
+        pro: 'Pro',
+      },
     },
     gateway: {
       title: 'Web Service',
