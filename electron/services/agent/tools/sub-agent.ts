@@ -71,7 +71,12 @@ function formatSpawned(names: string[], snapshots: ChildSnapshot[]): string {
   return t('dispatch.spawned', { count: names.length, list: lines.join('\n') })
 }
 
-function spawnDeps(executor: ToolExecutorConfig, progressStepId: string, artifactDir: string): RosterSpawnDeps | { error: string } {
+function spawnDeps(
+  executor: ToolExecutorConfig,
+  progressStepId: string,
+  artifactDir: string,
+  ownedNames?: Set<string>
+): RosterSpawnDeps | { error: string } {
   const roster = executor.getSubAgentRoster?.()
   if (!roster) return { error: 'dispatch_agents 需要主人花名册（内部错误）' }
   const createChild = executor.createChildAgent
@@ -88,8 +93,11 @@ function spawnDeps(executor: ToolExecutorConfig, progressStepId: string, artifac
     },
     knock: (message) => executor.knockParent?.(message),
     onProgress: (children) => {
+      const visible = ownedNames
+        ? children.filter(c => ownedNames.has(c.name))
+        : children
       executor.updateStep(progressStepId, {
-        subAgents: children.map(c => ({
+        subAgents: visible.map(c => ({
           id: c.name,
           name: c.name,
           description: c.description,
@@ -102,6 +110,7 @@ function spawnDeps(executor: ToolExecutorConfig, progressStepId: string, artifac
         }))
       })
     },
+    ownedNames,
     isParentAborted: () => executor.isAborted(),
     sanitize: sanitizeParentMessages,
     formatKnock,
@@ -161,7 +170,8 @@ export async function dispatchSubAgents(
     subAgents: []
   })
 
-  const deps = spawnDeps(executor, progressStep.id, buildArtifactDir())
+  const ownedNames = new Set<string>()
+  const deps = spawnDeps(executor, progressStep.id, buildArtifactDir(), ownedNames)
   if ('error' in deps) {
     return { success: false, output: '', error: deps.error }
   }

@@ -47,12 +47,19 @@ export interface RosterSpawnDeps {
   formatKnock: (child: ChildSnapshot) => string
   archiveResult?: (name: string, text: string) => string
   maxConcurrent?: number
+  /**
+   * 这一批派出的名字。spawn 在刷新进度前写入。
+   * 进度回调只该更新这几位，后一批不能把前一张卡片刷成整场花名册。
+   */
+  ownedNames?: Set<string>
 }
 
 interface ChildSlot extends ChildSnapshot {
   handle?: ChildAgentHandle
   runPromise?: Promise<void>
   forkTurns: ForkTurns
+  /** 派出这一位时的依赖。排队开工也得用它，不能被后一批的进度卡片接走。 */
+  launchDeps: RosterSpawnDeps
 }
 
 const LIVE: ReadonlySet<ChildStatus> = new Set(['pending', 'running'])
@@ -212,8 +219,12 @@ export class SubAgentRoster {
         status: 'pending',
         steps: [],
         forkTurns: task.forkTurns ?? { kind: 'all' },
+        launchDeps: deps,
       })
       names.push(name)
+    }
+    if (deps.ownedNames) {
+      for (const name of names) deps.ownedNames.add(name)
     }
     deps.onProgress(this.list())
 
@@ -223,7 +234,7 @@ export class SubAgentRoster {
       if (running >= maxConcurrent) return
       const next = [...this.children.values()].find(c => c.status === 'pending' && !c.runPromise)
       if (!next) return
-      this.startChild(next.name, deps)
+      this.startChild(next.name, next.launchDeps)
       startNext()
     }
     this.startQueued = startNext

@@ -29,6 +29,19 @@ vi.mock('../../im/im.service', () => ({
   getIMService: vi.fn().mockReturnValue(null)
 }))
 
+vi.mock('../../user-skill.service', () => ({
+  getUserSkillService: () => ({ getEnabledSkills: () => [] })
+}))
+
+vi.mock('../../config.service', () => ({
+  getConfigService: () => ({ get: () => undefined })
+}))
+
+vi.mock('../../web-search/index', () => ({
+  isConfigured: () => false,
+  getApiKey: () => '',
+}))
+
 import { dispatchSubAgents, followupAgent, waitAgents, interruptAgent } from '../tools/sub-agent'
 import { SubAgentRoster, type ChildAgentHandle } from '../sub-agent-roster'
 import type { ToolExecutorConfig, AgentConfig } from '../tools/types'
@@ -229,6 +242,53 @@ describe('dispatch_agents 异步派出', () => {
     }, defaultConfig, executor)
     await roster.waitUntil(['读包'], new AbortController().signal)
     expect(child.seeded).toEqual([])
+  })
+
+  it('后一批进度不会把前面的卡片刷成整场花名册', async () => {
+    const roster = new SubAgentRoster()
+    const child = (): ChildAgentHandle => {
+      let running = false
+      return {
+        isRunning: () => running,
+        abort: () => { running = false; return true },
+        addUserMessage: () => true,
+        seedOpeningMessages: () => {},
+        async run(_message, _context, options) {
+          running = true
+          await new Promise(r => setTimeout(r, 15))
+          options?.callbacks?.onStep?.('child', {
+            id: 'tool',
+            type: 'tool_call',
+            content: 'search',
+            toolName: 'web_search',
+            timestamp: Date.now(),
+          })
+          await new Promise(r => setTimeout(r, 15))
+          running = false
+          return 'ok'
+        },
+      }
+    }
+    const executor = createExecutor(roster, child)
+    await dispatchSubAgents({
+      tasks: [{ name: '海外', description: '海外搜索', prompt: '挖海外' }],
+    }, defaultConfig, executor)
+    await dispatchSubAgents({
+      tasks: [
+        { name: 'serp', description: 'SERP', prompt: '挖 SERP' },
+        { name: '国内', description: '国内', prompt: '挖国内' },
+      ],
+    }, defaultConfig, executor)
+
+    await roster.waitUntil(undefined, new AbortController().signal)
+
+    const steps = (executor as { _steps: AgentStep[] })._steps
+    const cards = steps.filter(s => s.toolName === 'dispatch_agents')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].subAgents?.map(a => a.name)).toEqual(['海外'])
+    expect(cards[1].subAgents?.map(a => a.name)).toEqual(['serp', '国内'])
+    expect(cards[0].content).toContain('1')
+    expect(cards[1].content).toContain('2')
   })
 
   it('非法 fork_turns 直接拒绝派出', async () => {
