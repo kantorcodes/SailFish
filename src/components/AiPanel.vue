@@ -20,7 +20,6 @@ import AiProfileSelect from './AiProfileSelect.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ProcessTurnFold from './ProcessTurnFold.vue'
 import { createReusableTemplate } from '../utils/reusable-template'
-import { hasSpokenBody } from '../utils/process-fold'
 import { buildPeekProcessView, countPeekNeedsYou, lastSpokenBody, resolveFocusPeek, resolvePeekOverlay } from '../utils/focus-peek'
 import { describeLiveProcess, type ProcessFoldView } from '../utils/process-fold'
 import { formatProcessFoldCaption, type ProcessFoldSay } from '../utils/process-fold-label'
@@ -244,28 +243,11 @@ const toggleThinkingExpand = async (stepId: string, anchorEl?: HTMLElement) => {
   window.setTimeout(stabilize, THINKING_EXPAND_TRANSITION_MS + 20)
 }
 
-// 任务完成尾注的显示条件：group 完成（finalResult 存在且非失败/中断）+ 当前是 group 内最后一个
-// 可见的 message step。把"✓ 任务完成"作为最后一个 message step 的内部尾巴渲染，避免单独成 item
-// 引起列表重排跳动。
+// 任务完成尾注挂在这一场的最后一格（步骤或折叠行外面），不另起一行，避免完成那一刻列表跳动。
+// 后头还有干活时，不挂在中途说过的那句话上。
 const shouldShowTaskCompleteFooter = (item: {
-  step?: AgentStep
-  group?: { finalResult?: string; steps: AgentStep[] }
   showTaskCompleteFooter?: boolean
-}): boolean => {
-  if (item.showTaskCompleteFooter) return true
-  if (!item.step || !item.group) return false
-  const finalResult = item.group.finalResult
-  if (!finalResult) return false
-  // 失败/中断有独立卡片显示错误信息，不在 message step 上重复尾注
-  if (finalResult.startsWith('❌') || finalResult.startsWith('⚠️')) return false
-  // 尾注要挂在最后一句「它说给用户听的话」上——只在想的 message 会被收进折叠行，
-  // 挂上去就跟着藏进抽屉了。一句都没说过时退回最后一个 message step。
-  const messageSteps = item.group.steps.filter(s => s.type === 'message')
-  if (messageSteps.length === 0) return false
-  const spoken = messageSteps.filter(s => hasSpokenBody(s))
-  const anchor = spoken.length > 0 ? spoken[spoken.length - 1] : messageSteps[messageSteps.length - 1]
-  return anchor.id === item.step.id
-}
+}): boolean => item.showTaskCompleteFooter === true
 
 const taskCompleteFooterLabels = new Map<string, string>()
 const bondTrustForFooter = ref<BondTrustLevel>('stranger')
@@ -2691,8 +2673,8 @@ watch(() => props.tabId, async (newTabId, oldTabId) => {
                         v-html="renderMarkdown(pres.body)"
                       ></div>
                       </template>
-                      <!-- 任务完成尾注：作为 message step 的尾巴，仅在 group 完成且这是 group 的最后一个
-                           message step 时显示。任务完成那一刻 group.finalResult 设置 → 尾注从 stack 末尾
+                      <!-- 任务完成尾注：长在这一场的最后一格上。这一格若是说过的话，尾注就在这句话下面；
+                           后头还有干活，标记跟到那些后面，不浮在半截。任务完成那一刻从这一格末尾
                            "长出"几像素，不引起独立 item 出现/消失，避免列表重排跳动。
                            agent-final-footer--first-show 仅在该 group 第一次显示尾注时附加，触发一次性
                            fade-in 动画；animationend 后 markFooterAnimated 写入 Set，后续虚拟滚动 remount

@@ -24,13 +24,28 @@ export function isFailureFinalResult(result?: string): boolean {
   return result.startsWith('❌') || result.startsWith('⚠️')
 }
 
-/** 成功收场、但没说过话（如人主动压缩）：收场尾注要挂在过程最后一格。 */
+/** 成功收场才显示「任务完成」。失败和中断另有卡片。 */
 export function groupNeedsProcessCompleteFooter(group: {
   finalResult?: string
-  steps: ReadonlyArray<{ type: string }>
 }): boolean {
-  if (!group.finalResult || isFailureFinalResult(group.finalResult)) return false
-  return !group.steps.some(s => s.type === 'message')
+  return !!group.finalResult && !isFailureFinalResult(group.finalResult)
+}
+
+/**
+ * 「任务完成」挂在这一场的最后一格（步骤或折叠行），不挂在中途说过的那句话上。
+ * 后头还有干活时，标记跟到那些后面。
+ */
+export function findTaskCompleteFooterIndex(
+  items: ReadonlyArray<{ type: string; group?: { id: string } }>,
+  groupId: string,
+): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.group?.id !== groupId) continue
+    if (item.type !== 'step' && item.type !== 'folded_turn') continue
+    return i
+  }
+  return -1
 }
 
 export function groupAgentSteps(allSteps: readonly AgentStep[]): {

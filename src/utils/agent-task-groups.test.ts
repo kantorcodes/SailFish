@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentStep } from '@shared/types'
-import { groupAgentSteps, groupNeedsProcessCompleteFooter } from './agent-task-groups'
+import { findTaskCompleteFooterIndex, groupAgentSteps, groupNeedsProcessCompleteFooter } from './agent-task-groups'
 
 let seq = 0
 function step(partial: Partial<AgentStep> & Pick<AgentStep, 'type' | 'content'>): AgentStep {
@@ -62,21 +62,47 @@ describe('groupNeedsProcessCompleteFooter', () => {
   it('is true when a successful turn never spoke', () => {
     expect(groupNeedsProcessCompleteFooter({
       finalResult: '上下文已压缩',
-      steps: [{ type: 'tool_call' }, { type: 'tool_result' }],
     })).toBe(true)
   })
 
-  it('is false when it already said something', () => {
+  it('is true when it already said something', () => {
     expect(groupNeedsProcessCompleteFooter({
       finalResult: '好了',
-      steps: [{ type: 'message' }],
-    })).toBe(false)
+    })).toBe(true)
   })
 
   it('is false for a failed turn', () => {
     expect(groupNeedsProcessCompleteFooter({
       finalResult: '❌ 任务失败',
-      steps: [{ type: 'tool_call' }],
     })).toBe(false)
+  })
+})
+
+describe('findTaskCompleteFooterIndex', () => {
+  const group = { id: 'g' }
+
+  it('hangs the mark on the last cell, not an earlier sentence', () => {
+    const items = [
+      { type: 'user_task', group },
+      { type: 'step', group },
+      { type: 'folded_turn', group },
+    ]
+    expect(findTaskCompleteFooterIndex(items, 'g')).toBe(2)
+  })
+
+  it('hangs the mark on the sentence when nothing follows it', () => {
+    const items = [
+      { type: 'folded_turn', group },
+      { type: 'step', group },
+    ]
+    expect(findTaskCompleteFooterIndex(items, 'g')).toBe(1)
+  })
+
+  it('does not pick another turn', () => {
+    const items = [
+      { type: 'step', group },
+      { type: 'step', group: { id: 'other' } },
+    ]
+    expect(findTaskCompleteFooterIndex(items, 'g')).toBe(0)
   })
 })

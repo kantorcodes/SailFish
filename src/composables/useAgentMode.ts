@@ -17,7 +17,7 @@ import { isAssistantConversationSurfaceVisible } from '../utils/agent-tab-ui-met
 import { useTts } from './useTts'
 import { shouldShowToolResultStep } from '../utils/tool-display'
 import { foldProcessSteps, type ProcessFoldView, type ProcessStepRef, type StepPart } from '../utils/process-fold'
-import { groupAgentSteps, groupNeedsProcessCompleteFooter } from '../utils/agent-task-groups'
+import { findTaskCompleteFooterIndex, groupAgentSteps, groupNeedsProcessCompleteFooter } from '../utils/agent-task-groups'
 import { estimateMessageStepVirtualSize } from '../utils/thinking-block'
 import { resolveWorkbenchAgentPrompt, resolveWorkbenchKind } from '../workbench'
 import { showConfirm, showAlert } from './useConfirm'
@@ -120,7 +120,7 @@ export interface VirtualItem {
   content?: string
   size: number
   isFirstStep?: boolean
-  /** 没说过话的成功收场：尾注挂在这一格（过程最后一格） */
+  /** 成功收场：尾注挂在这一场的最后一格 */
   showTaskCompleteFooter?: boolean
 }
 
@@ -1183,13 +1183,11 @@ export function useAgentMode(
       emitProcessSteps(group.afterEndSteps)
 
       if (groupNeedsProcessCompleteFooter(group)) {
-        for (let i = items.length - 1; i >= 0; i--) {
-          const item = items[i]
-          if (item.group?.id !== group.id) continue
-          if (item.type !== 'step' && item.type !== 'folded_turn') continue
+        const footerIndex = findTaskCompleteFooterIndex(items, group.id)
+        if (footerIndex >= 0) {
+          const item = items[footerIndex]
           item.showTaskCompleteFooter = true
           item.size += 28
-          break
         }
       }
     }
