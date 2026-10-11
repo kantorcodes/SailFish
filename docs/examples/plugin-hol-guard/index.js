@@ -1,5 +1,8 @@
 /* eslint-env node */
-const { execFileSync } = require('node:child_process')
+const { execFile } = require('node:child_process')
+const { promisify } = require('node:util')
+
+const execFileAsync = promisify(execFile)
 
 const GUARDED_TOOL = 'execute_command'
 const GUARD_TIMEOUT_MS = 10_000
@@ -33,15 +36,14 @@ function decisionFromGuardPayload(payload) {
   return { block: true }
 }
 
-function runGuard(command) {
-  const stdout = execFileSync(
+async function runGuard(command, executeFile = execFileAsync) {
+  const { stdout } = await executeFile(
     'hol-guard',
-    ['command', 'test', command, '--json'],
+    ['command', 'test', '--json', '--', command],
     {
       encoding: 'utf8',
       timeout: GUARD_TIMEOUT_MS,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+      windowsHide: true
     }
   )
 
@@ -67,6 +69,7 @@ function createBeforeToolCallHook(inspectCommand = runGuard) {
 
 module.exports = {
   GUARDED_TOOL,
+  runGuard,
   createBeforeToolCallHook,
   decisionFromGuardPayload,
   default: {

@@ -71,3 +71,58 @@ describe('HOL Guard plugin example', () => {
     })).resolves.toEqual({ block: true })
   })
 })
+
+describe('HOL Guard CLI execution', () => {
+  it('awaits asynchronous execution and keeps flag-like commands positional', async () => {
+    let resolveExecution
+    const calls = []
+    const execution = new Promise((resolve) => { resolveExecution = resolve })
+    const pending = pluginModule.runGuard('--help', (...args) => {
+      calls.push(args)
+      return execution
+    })
+    let settled = false
+    pending.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(calls).toEqual([[
+      'hol-guard',
+      ['command', 'test', '--json', '--', '--help'],
+      { encoding: 'utf8', timeout: 10_000, windowsHide: true }
+    ]])
+    resolveExecution({ stdout: '{"minimum_action":"review"}' })
+    await expect(pending).resolves.toEqual({ minimum_action: 'review' })
+  })
+
+  it('fails closed for malformed output and asynchronous process errors', async () => {
+    for (const executeFile of [
+      async () => ({ stdout: 'not JSON' }),
+      async () => { throw Object.assign(new Error('missing CLI'), { code: 'ENOENT' }) },
+      async () => { throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGTERM' }) },
+      async () => { throw Object.assign(new Error('nonzero exit'), { code: 1 }) }
+    ]) {
+      const hook = createBeforeToolCallHook((command) => pluginModule.runGuard(command, executeFile))
+      await expect(hook({
+        toolName: 'execute_command', toolArgs: { command: 'echo safe' }
+      })).resolves.toEqual({ block: true })
+    }
+  })
+
+  it('awaits the Guard decision before returning from the hook', async () => {
+    let resolveDecision
+    const decision = new Promise((resolve) => { resolveDecision = resolve })
+    const hook = createBeforeToolCallHook(() => decision)
+    const pending = hook({ toolName: 'execute_command', toolArgs: { command: 'echo safe' } })
+    let settled = false
+    pending.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    resolveDecision({ minimum_action: 'review' })
+    await expect(pending).resolves.toEqual({ requireApproval: true })
+  })
+
+  it.each(['exec', 'await_exec', 'send_input'])('does not claim coverage for %s', async (toolName) => {
+    const hook = createBeforeToolCallHook(() => { throw new Error('must not inspect other tools') })
+    await expect(hook({ toolName, toolArgs: { command: 'echo safe' } })).resolves.toEqual({})
+  })
+})
