@@ -22,6 +22,6 @@ Other SailFish tools are not changed by this example. SailFish's own command ris
 
 ## Scope and availability
 
-This example covers only `execute_command` and its `toolArgs.command` string. It does not inspect `exec` scripts, `await_exec`, or `send_input`; those tools have different inputs and remain outside this adapter's coverage.
+This example covers only `execute_command` and its `toolArgs.command` string. It does not inspect `exec` scripts, `await_exec`, or `send_input`. All three remain outside this adapter's coverage; `await_exec` and `send_input` do not provide the same command field.
 
 The manifest enables the plugin by default. If enabled without `hol-guard` on `PATH`, or if Guard times out or returns invalid output, every covered `execute_command` call is blocked. Install and verify the CLI before enabling the plugin. The check runs asynchronously with a 10-second timeout so it does not block Electron's main thread while waiting for Guard.
