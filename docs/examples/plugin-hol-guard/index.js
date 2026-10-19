@@ -8,18 +8,14 @@ const GUARDED_TOOL = 'execute_command'
 const GUARD_TIMEOUT_MS = 10_000
 
 function readMinimumAction(payload) {
-  return typeof payload?.minimum_action === 'string'
-    ? payload.minimum_action
-    : typeof payload?.policy_action === 'string'
-      ? payload.policy_action
-      : null
+  // `command test --json` must provide the authoritative minimum action.
+  // Do not promote a partial hook/policy status into an execution allow.
+  return typeof payload?.minimum_action === 'string' ? payload.minimum_action : null
 }
 
 function isExplicitlyBenign(payload) {
-  if (payload?.classification && typeof payload.classification.explicitly_benign === 'boolean') {
-    return payload.classification.explicitly_benign
-  }
-  return payload?.explicitly_benign === true
+  // A top-level benign hint cannot replace the command classification contract.
+  return payload?.classification?.explicitly_benign === true
 }
 
 function decisionFromGuardPayload(payload) {
