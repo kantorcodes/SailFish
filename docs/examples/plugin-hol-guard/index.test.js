@@ -42,6 +42,43 @@ describe('HOL Guard plugin example', () => {
     }
   })
 
+  it('rejects contradictory policy and hook verdicts despite benign classification', () => {
+    const benign = {
+      minimum_action: 'allow',
+      classification: { explicitly_benign: true }
+    }
+    for (const conflict of [
+      { policy_action: 'block' },
+      { policy_action: 'warn' },
+      { policy_action: null },
+      { policy_action: 'review' },
+      { hookSpecificOutput: null },
+      { hookSpecificOutput: { permissionDecision: 'allow' } },
+      { hookSpecificOutput: { hookEventName: 'PostToolUse', permissionDecision: 'allow' } },
+      { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } },
+      { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask' } }
+    ]) {
+      expect(decisionFromGuardPayload({ ...benign, ...conflict })).toEqual({ block: true })
+    }
+    expect(decisionFromGuardPayload({ ...benign, policy_action: 'not_run' })).toEqual({})
+    expect(decisionFromGuardPayload({
+      ...benign,
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' }
+    })).toEqual({})
+  })
+
+  it('keeps a native review human-only and blocks conflicting stops', () => {
+    const review = { minimum_action: 'review' }
+    expect(decisionFromGuardPayload({ ...review, policy_action: 'review' }))
+      .toEqual({ requireApproval: true })
+    expect(decisionFromGuardPayload({
+      ...review,
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask' }
+    })).toEqual({ requireApproval: true })
+    expect(decisionFromGuardPayload({ ...review, policy_action: 'block' }))
+      .toEqual({ block: true })
+  })
+
   it('maps Guard review to SailFish approval', () => {
     expect(decisionFromGuardPayload({ minimum_action: 'review' })).toEqual({ requireApproval: true })
   })
