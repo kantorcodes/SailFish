@@ -24,6 +24,24 @@ describe('HOL Guard plugin example', () => {
     })).toEqual({ block: true })
   })
 
+  it('rejects explicit stop and malformed continuation even if benign', () => {
+    for (const stop of [
+      { continue: false },
+      { continue: 'false' },
+      { continue: null },
+      { decision: 'deny' },
+      { decision: 'block' },
+      { decision: 'review' },
+      { decision: 0 }
+    ]) {
+      expect(decisionFromGuardPayload({
+        minimum_action: 'allow',
+        classification: { explicitly_benign: true },
+        ...stop
+      })).toEqual({ block: true })
+    }
+  })
+
   it('maps Guard review to SailFish approval', () => {
     expect(decisionFromGuardPayload({ minimum_action: 'review' })).toEqual({ requireApproval: true })
   })
