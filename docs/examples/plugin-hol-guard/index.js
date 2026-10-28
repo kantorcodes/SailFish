@@ -38,6 +38,26 @@ function decisionFromGuardPayload(payload) {
     }
   }
 
+  // Inspection-only output may have no native hook envelope. If an
+  // enforcement field is present, however, it must not contradict the
+  // classified action or SailFish's human-approval path.
+  if (Object.prototype.hasOwnProperty.call(payload, 'policy_action')) {
+    const policyAction = payload.policy_action
+    if (policyAction !== 'allow' && policyAction !== 'not_run' &&
+        !(policyAction === 'review' && action === 'review')) {
+      return { block: true }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'hookSpecificOutput')) {
+    const hook = payload.hookSpecificOutput
+    if (!hook || typeof hook !== 'object' || Array.isArray(hook) ||
+        hook.hookEventName !== 'PreToolUse' ||
+        (hook.permissionDecision !== 'allow' &&
+          !(hook.permissionDecision === 'ask' && action === 'review'))) {
+      return { block: true }
+    }
+  }
+
   if (action === 'allow' && isExplicitlyBenign(payload)) {
     return {}
   }
