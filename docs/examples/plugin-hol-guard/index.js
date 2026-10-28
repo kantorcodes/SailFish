@@ -19,7 +19,24 @@ function isExplicitlyBenign(payload) {
 }
 
 function decisionFromGuardPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { block: true }
+  }
   const action = readMinimumAction(payload)
+  // An explicit stop cannot be overridden by a benign classification.
+  if (Object.prototype.hasOwnProperty.call(payload, 'continue') &&
+      payload.continue !== true) {
+    return { block: true }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'decision')) {
+    const decision = typeof payload.decision === 'string'
+      ? payload.decision.trim().toLowerCase()
+      : ''
+    // Review can remain in SailFish's native human-approval path, never allow.
+    if (decision !== 'allow' && !(decision === 'review' && action === 'review')) {
+      return { block: true }
+    }
+  }
 
   if (action === 'allow' && isExplicitlyBenign(payload)) {
     return {}
