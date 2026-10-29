@@ -128,6 +128,29 @@ describe('HOL Guard plugin example', () => {
 })
 
 describe('HOL Guard CLI execution', () => {
+  it('fails closed when duplicate JSON policy fields mask a stop', async () => {
+    const malformed = [
+      '{"minimum_action":"review","minimum_action":"allow","classification":{"explicitly_benign":true}}',
+      '{"minimum_action":"allow","classification":{"explicitly_benign":false,"explicitly_benign":true}}',
+      '{"minimum_action":"allow","classification":{"explicitly_benign":true},"policy_action":"block","policy_action":"allow"}',
+      '{"minimum_action":"allow","classification":{"explicitly_benign":true},"meta":[{"key":0,"key":1}]}',
+      '{"minimum_action":"review","minim\\u0075m_action":"allow","classification":{"explicitly_benign":true}}'
+    ]
+    for (const stdout of malformed) {
+      const inspect = (command) => pluginModule.runGuard(command, async () => ({ stdout }))
+      const hook = createBeforeToolCallHook(inspect)
+      await expect(hook({
+        toolName: 'execute_command', toolArgs: { command: 'git status' }
+      })).resolves.toEqual({ block: true })
+    }
+  })
+
+  it('accepts valid nested JSON with repeated keys in different objects', async () => {
+    const stdout = '{"minimum_action":"allow","classification":{"explicitly_benign":true},"first":{"key":1},"second":{"key":2}}'
+    const verdict = await pluginModule.runGuard('git status', async () => ({ stdout }))
+    expect(decisionFromGuardPayload(verdict)).toEqual({})
+  })
+
   it('awaits asynchronous execution and keeps flag-like commands positional', async () => {
     let resolveExecution
     const calls = []
