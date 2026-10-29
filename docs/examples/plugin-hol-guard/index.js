@@ -69,6 +69,74 @@ function decisionFromGuardPayload(payload) {
   return { block: true }
 }
 
+// JSON.parse silently retains the last duplicate object member. Reject duplicate
+// keys at every level so a forged allow cannot overwrite a Guard stop signal.
+// JSON.parse validates the full syntax first; this second pass checks key identity.
+function parseGuardJson(output) {
+  const parsed = JSON.parse(output)
+  let offset = 0
+
+  function skipWhitespace() {
+    while (offset < output.length && /\s/.test(output[offset])) offset++
+  }
+
+  function readString() {
+    const start = offset++
+    while (offset < output.length) {
+      const ch = output[offset++]
+      if (ch === '\\') offset++
+      else if (ch === '"') return JSON.parse(output.slice(start, offset))
+    }
+    throw new SyntaxError('unterminated JSON string')
+  }
+
+  function readValue() {
+    skipWhitespace()
+    if (output[offset] === '{') return readObject()
+    if (output[offset] === '[') return readArray()
+    if (output[offset] === '"') return readString()
+    while (offset < output.length && !/[\s,\]}]/.test(output[offset])) offset++
+  }
+
+  function readObject() {
+    offset++
+    skipWhitespace()
+    const keys = new Set()
+    if (output[offset] === '}') { offset++; return }
+    while (offset < output.length) {
+      const key = readString()
+      if (keys.has(key)) throw new SyntaxError('duplicate JSON member')
+      keys.add(key)
+      skipWhitespace()
+      if (output[offset++] !== ':') throw new SyntaxError('invalid JSON object')
+      readValue()
+      skipWhitespace()
+      const next = output[offset++]
+      if (next === '}') return
+      if (next !== ',') throw new SyntaxError('invalid JSON object')
+      skipWhitespace()
+    }
+  }
+
+  function readArray() {
+    offset++
+    skipWhitespace()
+    if (output[offset] === ']') { offset++; return }
+    while (offset < output.length) {
+      readValue()
+      skipWhitespace()
+      const next = output[offset++]
+      if (next === ']') return
+      if (next !== ',') throw new SyntaxError('invalid JSON array')
+    }
+  }
+
+  readValue()
+  skipWhitespace()
+  if (offset !== output.length) throw new SyntaxError('invalid JSON suffix')
+  return parsed
+}
+
 async function runGuard(command, executeFile = execFileAsync) {
   const { stdout } = await executeFile(
     'hol-guard',
@@ -80,7 +148,7 @@ async function runGuard(command, executeFile = execFileAsync) {
     }
   )
 
-  return JSON.parse(stdout)
+  return parseGuardJson(stdout)
 }
 
 function createBeforeToolCallHook(inspectCommand = runGuard) {
