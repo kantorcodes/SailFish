@@ -166,7 +166,13 @@ function createBeforeToolCallHook(inspectCommand = runGuard) {
     }
 
     try {
-      return decisionFromGuardPayload(await inspectCommand(command))
+      const verdict = await inspectCommand(command)
+      // A concurrent caller must not swap the tool or command after inspection.
+      if (context.toolName !== GUARDED_TOOL ||
+          context.toolArgs?.command !== command) {
+        return { block: true }
+      }
+      return decisionFromGuardPayload(verdict)
     } catch {
       return { block: true }
     }
