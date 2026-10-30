@@ -12,6 +12,20 @@ describe('HOL Guard plugin example', () => {
     await expect(hook({ toolName: 'read_file', toolArgs: {}, toolCallId: '1' })).resolves.toEqual({})
   })
 
+  it('blocks missing or malformed tool identities before dispatching to Guard', async () => {
+    const hook = createBeforeToolCallHook(() => {
+      throw new Error('Guard must not run for malformed tool identity')
+    })
+    for (const context of [
+      undefined, null, {},
+      { toolName: null, toolArgs: { command: 'git status' } },
+      { toolName: '', toolArgs: { command: 'git status' } },
+      { toolName: '  ', toolArgs: { command: 'git status' } },
+      { toolName: 123, toolArgs: { command: 'git status' } }
+    ]) {
+      await expect(hook(context)).resolves.toEqual({ block: true })
+    }
+  })
   it('allows only an explicitly benign Guard allow result', () => {
     expect(decisionFromGuardPayload({
       minimum_action: 'allow',
