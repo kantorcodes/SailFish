@@ -139,6 +139,44 @@ describe('HOL Guard plugin example', () => {
       toolCallId: '4'
     })).resolves.toEqual({ block: true })
   })
+  it('refuses a changed command after asynchronous Guard inspection', async () => {
+    let finishInspection
+    const context = {
+      toolName: 'execute_command',
+      toolArgs: { command: 'git status' },
+      toolCallId: 'mutable-1'
+    }
+    const hook = createBeforeToolCallHook(() => new Promise(resolve => {
+      finishInspection = resolve
+    }))
+    const pending = hook(context)
+    context.toolArgs.command = 'rm -rf ./workspace'
+    finishInspection({
+      minimum_action: 'allow',
+      classification: { explicitly_benign: true }
+    })
+    await expect(pending).resolves.toEqual({ block: true })
+  })
+
+  it('refuses a changed tool identity after asynchronous Guard inspection', async () => {
+    let finishInspection
+    const context = {
+      toolName: 'execute_command',
+      toolArgs: { command: 'git status' },
+      toolCallId: 'mutable-2'
+    }
+    const hook = createBeforeToolCallHook(() => new Promise(resolve => {
+      finishInspection = resolve
+    }))
+    const pending = hook(context)
+    context.toolName = 'read_file'
+    finishInspection({
+      minimum_action: 'allow',
+      classification: { explicitly_benign: true }
+    })
+    await expect(pending).resolves.toEqual({ block: true })
+  })
+
 })
 
 describe('HOL Guard CLI execution', () => {
