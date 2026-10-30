@@ -153,6 +153,11 @@ async function runGuard(command, executeFile = execFileAsync) {
 
 function createBeforeToolCallHook(inspectCommand = runGuard) {
   return async (context) => {
+    // An absent or malformed tool identity is not proof that this is an
+    // unrelated tool. A lost execute_command name must not bypass the gate.
+    if (!context || typeof context.toolName !== 'string' || !context.toolName.trim()) {
+      return { block: true }
+    }
     if (context.toolName !== GUARDED_TOOL) return {}
 
     const command = context.toolArgs?.command
